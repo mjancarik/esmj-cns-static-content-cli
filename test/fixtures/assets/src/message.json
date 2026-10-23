@@ -1,0 +1,5 @@
+{
+  "title": "Bundled JSON",
+  "items": ["SVG", "JPEG", "CSS"],
+  "enabled": true
+}

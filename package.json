@@ -1,0 +1,42 @@
+{
+	"name": "@esmj/cns-static-content-cli",
+	"version": "0.1.4",
+	"description": "Build Parcel static-content projects and export HTML, CSS, and JavaScript artifacts.",
+	"type": "module",
+	"bin": {
+		"esmj-cns-static-content-cli": "src/cli.mjs"
+	},
+	"exports": {
+		".": "./src/build.mjs"
+	},
+	"files": [
+		"src/"
+	],
+	"scripts": {
+		"lint": "biome lint .",
+		"lint:fix": "biome lint --write .",
+		"test": "node --test test/*.test.mjs"
+	},
+	"engines": {
+		"node": ">=18"
+	},
+	"author": "Miroslav Jancarik",
+	"license": "MIT",
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org/",
+		"access": "public"
+	},
+	"dependencies": {
+		"@parcel/config-default": "^2.16.4",
+		"@parcel/core": "^2.16.4",
+		"clipboardy": "^3.0.0",
+		"cssbeautify": "^0.3.1",
+		"es-check": "^6.2.1",
+		"jsdom": "^19.0.0",
+		"pretty": "^2.0.0",
+		"purgecss": "^4.1.3"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.5.15"
+	}
+}

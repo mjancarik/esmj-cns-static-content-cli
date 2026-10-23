@@ -1,0 +1,5 @@
+{
+  "name": "static-build-assets-example",
+  "private": true,
+  "targets": { "default": { "includeNodeModules": true } }
+}

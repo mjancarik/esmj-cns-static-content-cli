@@ -1,0 +1,8 @@
+@import './theme.css';
+
+.headline { color: rgb(10, 20, 30); }
+.background { background-image: url('./photo.jpg'); }
+.from-javascript { font-weight: bold; }
+.keep-from-content { color: blue; }
+.keep-from-ignore { color: green; }
+.unused-selector { color: red; }
