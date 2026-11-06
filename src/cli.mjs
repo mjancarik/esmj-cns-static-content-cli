@@ -28,7 +28,7 @@ Options:
   --public-url <url>         Parcel public URL (default: /)
   --dev                     Start a Parcel dev server with watch mode and HMR
   --watch                   Alias for --dev
-  --open                    Open the generated URL in the browser
+  --open                    Open the dev URL in the browser
   --port <port>             Dev server port (default: 1234)
   --host <host>             Dev server host (default: 127.0.0.1)
   --verbose                 Print bundler output

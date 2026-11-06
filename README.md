@@ -53,7 +53,7 @@ Options:
   --public-url <url>        Parcel public URL (default: /)
   --dev                    Start a Parcel dev server with watch mode and HMR
   --watch                  Alias for --dev
-  --open                   Open the generated URL in the browser
+  --open                   Open the dev URL in the browser
   --port <port>            Dev server port (default: 1234)
   --host <host>            Dev server host (default: 127.0.0.1)
   --verbose                Print bundler output
@@ -80,6 +80,20 @@ Dev preview with browser auto-open:
 ```bash
 npx @esmj/cns-static-content-cli --cwd ./packages/site --dev --open --host 0.0.0.0 --port 1234
 ```
+
+If the consuming project's `package.json` already has a `dev` script that runs
+the CLI, either add the option to that script:
+
+```json
+{
+  "scripts": {
+    "dev": "esmj-cns-static-content-cli --dev --open"
+  }
+}
+```
+
+Or leave the script as-is and run `npm run dev -- --open`. In both cases, Parcel
+opens the current project's dev URL in the default browser.
 
 ## What it produces
 
