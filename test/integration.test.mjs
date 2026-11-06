@@ -9,17 +9,23 @@ import test from 'node:test';
 
 import clipboardy from 'clipboardy';
 import { JSDOM } from 'jsdom';
+import purgecssPackage from 'purgecss';
 import { build } from '../src/build.mjs';
 
 const execute = promisify(execFile);
 const fixtures = fileURLToPath(new URL('./fixtures/', import.meta.url));
 const cli = fileURLToPath(new URL('../src/cli.mjs', import.meta.url));
+const purgecssBin = fileURLToPath(new URL('../node_modules/purgecss/bin/purgecss.js', import.meta.url));
+const { PurgeCSS } = purgecssPackage;
 
 async function project(t, name) {
   // Outside the checkout: no inherited aliases, .parcelrc, or workspace targets.
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'static build example-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
-  await fs.cp(path.join(fixtures, name), directory, { recursive: true });
+  await fs.cp(path.join(fixtures, name), directory, {
+    recursive: true,
+    filter: (source) => !['dist', '.parcel-cache'].includes(path.basename(source)),
+  });
   if (name === 'assets') {
     const encoded = await fs.readFile(path.join(directory, 'src/photo.jpg.base64'), 'utf8');
     await fs.writeFile(path.join(directory, 'src/photo.jpg'), Buffer.from(encoded, 'base64'));
@@ -95,6 +101,63 @@ test('build bundles HTML, CSS imports, JS modules, JSON, SVG and JPEG outside th
   assert.deepEqual(JSON.parse(JSON.stringify(dom.window.fixtureData)), {
     title: 'Bundled JSON', items: ['SVG', 'JPEG', 'CSS'], enabled: true,
   });
+});
+
+test('PurgeCSS API safelists have the same exact-selector behavior as its CLI', async (t) => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'purgecss safelist-'));
+  t.after(() => fs.rm(cwd, { recursive: true, force: true }));
+  const cssPath = path.join(cwd, 'input.css');
+  const contentPath = path.join(cwd, 'content.html');
+  await fs.writeFile(cssPath, '.leaflet- { color: red; }\n.leaflet-container { color: blue; }');
+  await fs.writeFile(contentPath, '<main></main>');
+
+  const { stdout } = await execute(process.execPath, [
+    purgecssBin, '--css', cssPath, '--content', contentPath, '--safelist', 'leaflet-',
+  ]);
+  const legacyCss = JSON.parse(stdout)[0].css;
+  const apiResult = await new PurgeCSS().purge({
+    css: [cssPath],
+    content: [contentPath],
+    safelist: ['leaflet-'],
+  });
+
+  assert.equal(apiResult[0].css, legacyCss);
+  assert.match(legacyCss, /\.leaflet-/);
+  assert.doesNotMatch(legacyCss, /\.leaflet-container/);
+});
+
+test('build applies exact PurgeCSS safelist selectors', async (t) => {
+  const cwd = await project(t, 'assets');
+  await fs.appendFile(path.join(cwd, 'src/index.css'), '\n.leaflet- { color: red; }\n.leaflet-container { color: blue; }\n');
+  const result = await build({ cwd, clipboard: false, purgeIgnore: ['keep.css'], purgeSafelist: ['leaflet-'] });
+  const css = await fs.readFile(result.outputs.css, 'utf8');
+
+  assert.match(css, /\.leaflet-/);
+  assert.doesNotMatch(css, /\.leaflet-container/);
+});
+
+test('production optimization can be disabled and relative public URLs remain exportable', async (t) => {
+  const optimizedProject = await project(t, 'assets');
+  const sourceJs = path.join(optimizedProject, 'src/index.js');
+  await fs.appendFile(sourceJs, `\n${'window.optimizationCheck = "kept"; '.repeat(30)}\n`);
+  const optimized = await build({ cwd: optimizedProject, clipboard: false, purgeIgnore: ['keep.css'] });
+  const optimizedJs = await fs.readFile(optimized.outputs.js, 'utf8');
+
+  const unoptimizedProject = await project(t, 'assets');
+  const unoptimizedSourceJs = path.join(unoptimizedProject, 'src/index.js');
+  await fs.appendFile(unoptimizedSourceJs, `\n${'window.optimizationCheck = "kept"; '.repeat(30)}\n`);
+  const unoptimized = await build({ cwd: unoptimizedProject, clipboard: false, purgeIgnore: ['keep.css'], optimize: false });
+  const unoptimizedJs = await fs.readFile(unoptimized.outputs.js, 'utf8');
+  assert.ok(unoptimizedJs.length > optimizedJs.length, 'Production optimization should reduce output size');
+
+  const relativeUrlProject = await project(t, 'assets');
+  const relativeUrl = await build({ cwd: relativeUrlProject, clipboard: false, purgeIgnore: ['keep.css'], publicUrl: './' });
+  const bundledHtml = await fs.readFile(path.join(relativeUrlProject, 'dist/index.html'), 'utf8');
+  assert.match(bundledHtml, /src=photo\.[^\s>]+\.jpg/);
+  const { html, css, dom } = await artifacts(relativeUrl);
+  t.after(() => dom.window.close());
+  assert.match(html, /data:image\/jpeg;base64,/);
+  assert.match(css, /url\(data:image\/jpeg;base64,/);
 });
 
 test('mixed inline and linked assets are all exported and execute exactly once', async (t) => {

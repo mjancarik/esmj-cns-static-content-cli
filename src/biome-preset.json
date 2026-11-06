@@ -1,0 +1,39 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "files": {
+    "ignoreUnknown": true,
+    "includes": ["**", "!**/dist", "!**/.parcel-cache", "!**/node_modules"]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "jsxQuoteStyle": "single",
+      "bracketSameLine": false
+    },
+    "globals": [
+      "describe", "fdescribe", "xdescribe", "it", "fit", "xit",
+      "test", "xtest", "expect", "expectAsync", "beforeEach", "afterEach",
+      "beforeAll", "afterAll", "jasmine", "jest", "spyOn", "spyOnProperty",
+      "spyOnAllFunctions", "fail", "pending", "setSpecProperty", "setSuiteProperty"
+    ]
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "correctness": {
+        "noUndeclaredVariables": "error"
+      },
+      "suspicious": {
+        "noConsole": {
+          "level": "error",
+          "options": { "allow": ["warn", "error"] }
+        }
+      }
+    }
+  }
+}

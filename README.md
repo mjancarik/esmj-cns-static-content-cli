@@ -46,8 +46,11 @@ Options:
   --out-dir <directory>     Output directory relative to the project (default: dist)
   --purge-content <path>    Additional PurgeCSS content path (repeatable)
   --purge-ignore <file>     CSS selectors to preserve (repeatable)
+  --safelist <token>        Exact PurgeCSS selector token to preserve (repeatable)
   --no-clipboard            Do not copy the generated HTML to the clipboard
   --no-purge                Disable PurgeCSS cleanup entirely
+  --no-optimize             Disable Parcel production optimization
+  --public-url <url>        Parcel public URL (default: /)
   --dev                    Start a Parcel dev server with watch mode and HMR
   --watch                  Alias for --dev
   --open                   Open the generated URL in the browser
@@ -56,6 +59,13 @@ Options:
   --verbose                Print bundler output
   -h, --help               Show help
 ```
+
+Each `--safelist` value follows PurgeCSS CLI semantics and matches one exact
+class/selector token (without a leading dot). For example,
+`--safelist leaflet-` preserves the class `.leaflet-`; it does **not** preserve
+`.leaflet-container` or every selector with a `leaflet-` prefix. Regex and prefix
+matching are not supported by this option. Verify legacy output before migrating
+prefix-like safelist values.
 
 ### Examples
 
@@ -111,12 +121,63 @@ await build({
   purge: true,
   purgeContent: ['src/**/*.html', 'src/**/*.js'],
   purgeIgnore: ['src/purgeignore.css'],
+  purgeSafelist: [],
+  optimize: true,
+  publicUrl: '/',
   clipboard: true,
   verbose: false,
 });
 ```
 
 The package also exports `parseArguments` and `serve` for advanced use.
+
+## Lint source files
+
+Run `esmj-cns-static-content-cli lint` to lint the project's source directory
+with the bundled Biome dependency. No HTML entry, Parcel build, clipboard access,
+or consumer configuration changes are involved.
+
+- `lint [paths...]` accepts files or directories relative to the project; default: `src`.
+- `--cwd <directory>` selects the project directory.
+- `--config <path>` explicitly selects a Biome config file or directory, relative to the project.
+- `--write` applies safe lint fixes. It does not run the formatter or unsafe fixes.
+- `--help` displays help. Biome diagnostics and exit status are returned by the CLI.
+
+Configuration selection: an explicit `--config` wins; otherwise an existing
+project or ancestor Biome config is discovered using Biome's native resolution.
+If none exists, the bundled [preset](src/biome-preset.json) is used. Existing
+configs are not silently merged or rewritten, and invalid configs fail rather
+than falling back. The shell's `BIOME_CONFIG_PATH` does not override this selection.
+
+### Extend the baseline in a monorepo
+
+Install this CLI at the monorepo root. In the root Biome configuration, set
+`extends` to `["@esmj/cns-static-content-cli/biome.json"]` and add the monorepo's
+own settings, rules, globals, and file overrides. This exported preset is included
+in the published package. Lint commands run from child packages discover the root
+config automatically. For per-package overrides, use Biome's nested configuration
+with `"root": false` and `"extends": ["//"]` to inherit the monorepo root.
+
+The JavaScript API is available through `@esmj/cns-static-content-cli/lint`:
+`lint({ cwd, paths: ['src'], config, write: false })` returns
+`{ exitCode, stdout, stderr }`. `parseLintArguments` is exported from the same module.
+
+### ESLint and Prettier migration notes
+
+The baseline enables Biome's recommended rules, rejects undeclared variables,
+and prohibits console calls except `console.warn` and `console.error`.
+Browser globals and `globalThis` are recognized by Biome; common Jasmine and
+Jest globals are declared in the preset.
+
+Formatter settings preserve the requested single JavaScript and JSX quotes and
+`bracketSameLine: false`, with two-space indentation. They take effect only when
+running Biome's formatter/check command with this configuration: **`lint` does
+not check formatting**, unlike the old `prettier/prettier` ESLint rule.
+
+Biome's recommended rules are not an exact copy of `eslint:recommended`, it does
+not load ESLint plugins or enforce an ECMAScript 2020 parser ceiling, and its
+globals setting does not reproduce ESLint's read-only custom-global flags.
+ES2018 validation of production build output remains separate and unchanged.
 
 ## Notes
 

@@ -21,6 +21,9 @@ const DEFAULTS = {
   purge: true,
   purgeContent: ['src/**/*.html', 'src/**/*.js'],
   purgeIgnore: ['src/purgeignore.css'],
+  purgeSafelist: [],
+  optimize: true,
+  publicUrl: '/',
   clipboard: true,
   verbose: false,
   dev: false,
@@ -37,8 +40,10 @@ const VALUE_OPTIONS = new Set([
   '--out-dir',
   '--purge-content',
   '--purge-ignore',
+  '--safelist',
   '--port',
   '--host',
+  '--public-url',
 ]);
 
 function getPackageBin(packageName) {
@@ -110,6 +115,9 @@ function withDefaults(inputOptions = {}) {
     purge: inputOptions.purge ?? DEFAULTS.purge,
     purgeContent: inputOptions.purgeContent ?? DEFAULTS.purgeContent,
     purgeIgnore: inputOptions.purgeIgnore ?? DEFAULTS.purgeIgnore,
+    purgeSafelist: inputOptions.purgeSafelist ?? DEFAULTS.purgeSafelist,
+    optimize: inputOptions.optimize ?? DEFAULTS.optimize,
+    publicUrl: inputOptions.publicUrl ?? DEFAULTS.publicUrl,
     clipboard: inputOptions.clipboard ?? DEFAULTS.clipboard,
     verbose: inputOptions.verbose ?? DEFAULTS.verbose,
     dev: inputOptions.dev ?? DEFAULTS.dev,
@@ -465,6 +473,7 @@ async function purgeBuiltCss({
   indexHtmlPath,
   purgeContent,
   purgeIgnore,
+  purgeSafelist,
 }) {
   const entries = await fs.readdir(outDir, { withFileTypes: true });
   const cssFiles = entries
@@ -486,6 +495,7 @@ async function purgeBuiltCss({
   const result = await purge.purge({
     css: cssFiles,
     content: [indexHtmlPath, ...jsFiles, ...additionalContent],
+    safelist: purgeSafelist,
   });
 
   await Promise.all(
@@ -517,6 +527,7 @@ export function parseArguments(argv) {
     ...DEFAULTS,
     purgeContent: [...DEFAULTS.purgeContent],
     purgeIgnore: [...DEFAULTS.purgeIgnore],
+    purgeSafelist: [...DEFAULTS.purgeSafelist],
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -539,6 +550,11 @@ export function parseArguments(argv) {
 
     if (arg === '--no-purge') {
       options.purge = false;
+      continue;
+    }
+
+    if (arg === '--no-optimize') {
+      options.optimize = false;
       continue;
     }
 
@@ -580,9 +596,13 @@ export function parseArguments(argv) {
       options.purgeContent.push(value);
     } else if (arg === '--purge-ignore') {
       options.purgeIgnore.push(value);
+    } else if (arg === '--safelist') {
+      options.purgeSafelist.push(value);
+    } else if (arg === '--public-url') {
+      options.publicUrl = value;
     } else if (arg === '--port') {
-      const port = Number.parseInt(value, 10);
-      if (!Number.isInteger(port) || port <= 0) {
+      const port = Number(value);
+      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
         throw new Error(`Invalid value for ${arg}: ${value}`);
       }
       options.port = port;
@@ -591,11 +611,21 @@ export function parseArguments(argv) {
     }
   }
 
+  if (!options.publicUrl.trim()) {
+    throw new Error('Invalid value for --public-url: value must not be empty.');
+  }
+  if (options.purgeSafelist.some((item) => !item.trim() || /\s/.test(item))) {
+    throw new Error('--safelist values must be non-empty selector tokens without whitespace.');
+  }
+
   return options;
 }
 
 export async function serve(inputOptions = {}) {
   const options = withDefaults(inputOptions);
+  if (typeof options.publicUrl !== 'string' || !options.publicUrl.trim()) {
+    throw new Error('publicUrl must be a non-empty string.');
+  }
   const projectDir = path.resolve(options.cwd);
   const entryPath = resolveProjectPath(projectDir, options.entry);
 
@@ -612,6 +642,8 @@ export async function serve(inputOptions = {}) {
     String(options.port),
     '--host',
     options.host,
+    '--public-url',
+    options.publicUrl,
     '--no-cache',
   ];
 
@@ -636,6 +668,15 @@ export async function serve(inputOptions = {}) {
 
 export async function build(inputOptions = {}) {
   const options = withDefaults(inputOptions);
+  if (!Array.isArray(options.purgeSafelist) || options.purgeSafelist.some((item) => typeof item !== 'string' || !item.trim() || /\s/.test(item))) {
+    throw new Error('purgeSafelist must be an array of non-empty selector tokens without whitespace.');
+  }
+  if (typeof options.optimize !== 'boolean') {
+    throw new Error('optimize must be a boolean.');
+  }
+  if (typeof options.publicUrl !== 'string' || !options.publicUrl.trim()) {
+    throw new Error('publicUrl must be a non-empty string.');
+  }
   const projectDir = path.resolve(options.cwd);
   const entryPath = resolveProjectPath(projectDir, options.entry);
   const outDir = resolveProjectPath(projectDir, options.outDir);
@@ -656,8 +697,14 @@ export async function build(inputOptions = {}) {
       `./${path.relative(projectDir, entryPath)}`,
       outDir,
       String(options.verbose),
+      String(options.optimize),
+      options.publicUrl,
     ],
-    { cwd: projectDir, verbose: options.verbose }
+    {
+      cwd: projectDir,
+      verbose: options.verbose,
+      env: { NODE_ENV: process.env.NODE_ENV || 'production' },
+    }
   );
 
   if (options.purge) {
@@ -666,6 +713,7 @@ export async function build(inputOptions = {}) {
       indexHtmlPath,
       purgeContent,
       purgeIgnore,
+      purgeSafelist: options.purgeSafelist,
     });
   }
 

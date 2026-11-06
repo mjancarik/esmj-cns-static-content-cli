@@ -11,6 +11,9 @@ test('parseArguments provides build defaults', () => {
   assert.equal(options.outDir, 'dist');
   assert.deepEqual(options.purgeContent, ['src/**/*.html', 'src/**/*.js']);
   assert.deepEqual(options.purgeIgnore, ['src/purgeignore.css']);
+  assert.deepEqual(options.purgeSafelist, []);
+  assert.equal(options.optimize, true);
+  assert.equal(options.publicUrl, '/');
   assert.equal(options.purge, true);
   assert.equal(options.clipboard, true);
 });
@@ -53,6 +56,23 @@ test('parseArguments supports dev server settings', () => {
   assert.equal(options.host, '127.0.0.1');
 });
 
+test('parseArguments supports safelists, optimization control, and public URLs', () => {
+  const options = parseArguments([
+    '--safelist', 'leaflet-',
+    '--safelist', 'modal-open',
+    '--no-optimize',
+    '--public-url', './',
+    '--dev',
+    '--open',
+  ]);
+
+  assert.deepEqual(options.purgeSafelist, ['leaflet-', 'modal-open']);
+  assert.equal(options.optimize, false);
+  assert.equal(options.publicUrl, './');
+  assert.equal(options.dev, true);
+  assert.equal(options.open, true);
+});
+
 test('toProjectRelativePosixPath normalizes Windows-style paths for es-check', () => {
   assert.equal(
     toProjectRelativePosixPath('C:\\repo\\project', 'C:\\repo\\project\\dist\\staticContent.js', path.win32),
@@ -68,4 +88,10 @@ test('parseArguments rejects unknown and incomplete options', () => {
   assert.throws(() => parseArguments(['--unexpected']), /Unknown option/);
   assert.throws(() => parseArguments(['--entry']), /Missing value/);
   assert.throws(() => parseArguments(['--port']), /Missing value/);
+  assert.throws(() => parseArguments(['--safelist']), /Missing value/);
+  assert.throws(() => parseArguments(['--safelist', '   ']), /selector tokens/);
+  assert.throws(() => parseArguments(['--safelist', 'leaflet- classes']), /selector tokens/);
+  assert.throws(() => parseArguments(['--public-url']), /Missing value/);
+  assert.throws(() => parseArguments(['--public-url', '   ']), /must not be empty/);
+  assert.throws(() => parseArguments(['--port', '1.5']), /Invalid value/);
 });

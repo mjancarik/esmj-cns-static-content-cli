@@ -4,7 +4,7 @@ import { BROWSER_TARGETS } from './browser-targets.mjs';
 
 const require = createRequire(import.meta.url);
 const { Parcel } = parcel;
-const [entry, outDir, verbose] = process.argv.slice(2);
+const [entry, outDir, verbose, optimize, publicUrl] = process.argv.slice(2);
 
 // Run in a child process so Parcel workers and project cwd remain isolated.
 try {
@@ -13,12 +13,17 @@ try {
     defaultConfig: require.resolve('@parcel/config-default'),
     mode: 'production',
     shouldAutoInstall: false,
+    defaultTargetOptions: {
+      shouldOptimize: optimize !== 'false',
+      publicUrl,
+    },
     targets: {
       default: {
         context: 'browser',
         engines: { browsers: [...BROWSER_TARGETS] },
         distDir: outDir,
         includeNodeModules: true,
+        publicUrl,
         sourceMap: false,
       },
     },
