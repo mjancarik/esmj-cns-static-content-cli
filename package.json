@@ -1,6 +1,6 @@
 {
 	"name": "@esmj/cns-static-content-cli",
-	"version": "0.1.4",
+	"version": "0.1.5",
 	"description": "Build Parcel static-content projects and export HTML, CSS, and JavaScript artifacts.",
 	"type": "module",
 	"bin": {
