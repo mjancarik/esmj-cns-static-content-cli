@@ -4,7 +4,7 @@ Build a Parcel HTML entry into a static, portable export without making the cons
 
 ## Requirements
 
-- Node.js 18+
+- Node.js 24+
 
 ## Installation
 
@@ -51,6 +51,7 @@ Options:
   --no-purge                Disable PurgeCSS cleanup entirely
   --no-optimize             Disable Parcel production optimization
   --public-url <url>        Parcel public URL (default: /)
+  --responsive-css          Measure main height from 1600px to 320px with Playwright
   --dev                    Start a Parcel dev server with watch mode and HMR
   --watch                  Alias for --dev
   --open                   Open the dev URL in the browser
@@ -144,6 +145,120 @@ await build({
 ```
 
 The package also exports `parseArguments` and `serve` for advanced use.
+
+### Mock the static-content browser API
+
+Import the mock entry point from a consumer project's source code during
+development to provide the static-content host API without requiring the host
+environment:
+
+```js
+import '@esmj/cns-static-content-cli/mock';
+```
+
+Outside production builds, this installs `$resizeStaticContent`,
+`$redirectAllLinks`, `$redirect`, `$redirectToUrl`, `DOT.hit`, and
+`scriptLoader.load` on `window`. Redirect and analytics calls are logged;
+resize and link-redirection calls are no-ops. In production, the module has no
+effect. In Node.js environments without `window`, it also safely does nothing.
+
+### Generate responsive height rules
+
+Add `--responsive-css` to a production build to run a post-build browser pass.
+It serves the generated `staticContent.html`, launches headless Chromium through
+the consuming project's `playwright` or `@playwright/test` installation, and
+measures the `main` element from 1600px down to 320px in 4px steps. Heights are
+rounded to the nearest 0.25rem. The first sampled width where the measured height
+changes becomes a `max-width` breakpoint. If an `amp-iframe` inside `main` is
+visible at that width, its selector is grouped with the class placeholder.
+
+The generated rules are written to `dist/__CLASS__.css` (or the configured
+output directory) and printed to the terminal after the standard build output.
+`__CLASS__` is intentionally literal for the consuming application to replace.
+This feature is opt-in and requires the project to have Playwright and its
+Chromium browser installed; normal builds do not need Playwright.
+
+```bash
+esmj-cns-static-content-cli --responsive-css
+```
+
+The JavaScript build API also accepts `responsiveCss: true` or an options object:
+
+```js
+await build({
+  responsiveCss: {
+    selector: 'main',
+    minWidth: 320,
+    maxWidth: 1600,
+    step: 4,
+    viewportHeight: 900,
+    roundToRem: 0.25,
+    includeAmpIframe: true,
+    waitForSelector: '#content-ready',
+    waitMs: 100,
+  },
+});
+```
+
+Use the step setting to trade profiling time for breakpoint precision. Breakpoint
+widths are the first sampled widths at which the rounded content height changes.
+
+## Verify a project
+
+`esmj-cns-static-content-cli verify` runs all four checks and prints a summary:
+
+1. `test:unit` runs Jest with the CLI-owned config (the supplied
+   `modulePaths`, `testRegex`, asset/style mocks, and `@/` alias).
+2. The production static-content build is performed once.
+3. `test:size` measures raw output bytes. Defaults are HTML 100/150 KiB,
+   CSS 50/80 KiB, and JS 200/300 KiB (soft/hard). Exceeding soft warns;
+   exceeding hard fails verification.
+4. `test:e2e` serves the generated `staticContent.html` at `/` and runs the
+   project's Playwright tests.
+5. `test:regression` serves Parcel's production page and starts a dev server,
+   then compares browser screenshots. Differences above the default 0.1% pixel
+   ratio warn for manual review and do not fail verification.
+
+The checks are also available individually as `test:unit`, `test:size`,
+`test:e2e`, and `test:regression`. Size, E2E, and regression commands build when
+run alone. `verify` shares its production build among those checks. Unit and
+Playwright checks use the versions installed by the project or a monorepo
+ancestor; Playwright's browser must already be installed. E2E tests should be in
+`e2e/` by default and can navigate with `page.goto('/')` using Playwright's
+configured `baseURL`.
+
+Verification uses `.cns-static-content.json` at the project root. Every setting
+is optional; the defaults above apply. Individual checks can override their
+configuration, and the file is never rewritten. For example:
+
+```json
+{
+  "sizeLimits": {
+    "html": { "soft": 102400, "hard": 153600 },
+    "css": { "soft": 51200, "hard": 81920 },
+    "js": { "soft": 204800, "hard": 307200 }
+  },
+  "build": { "entry": "src/index.html", "outDir": "dist" },
+  "unit": { "testEnvironment": "jsdom" },
+  "e2e": {
+    "testDir": "e2e",
+    "testMatch": "**/*.spec.{js,jsx,ts,tsx}",
+    "playwright": { "workers": 2 }
+  },
+  "regression": {
+    "viewport": { "width": 1280, "height": 720 },
+    "maxDiffPixelRatio": 0.001,
+    "pixelThreshold": 0.1,
+    "waitForSelector": "main",
+    "waitMs": 100
+  }
+}
+```
+
+Run all checks from a package or monorepo root with `verify --cwd <path>`;
+select another config using `--config <path>`. The JavaScript API exports
+`runVerify`, `testUnit`, `testSize`, `testE2e`, and `testRegression` from
+`@esmj/cns-static-content-cli/verify`.
 
 ## Lint source files
 

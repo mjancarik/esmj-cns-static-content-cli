@@ -8,11 +8,14 @@
 	},
 	"exports": {
 		".": "./src/build.mjs",
+		"./mock": "./src/mock.mjs",
 		"./lint": "./src/lint.mjs",
+		"./verify": "./src/verify.mjs",
 		"./biome.json": "./src/biome-preset.json"
 	},
 	"files": [
-		"src/"
+		"src/",
+		"agent/"
 	],
 	"scripts": {
 		"lint": "biome lint .",
@@ -20,7 +23,7 @@
 		"test": "node --test test/*.test.mjs"
 	},
 	"engines": {
-		"node": ">=18"
+		"node": ">=24"
 	},
 	"author": "Miroslav Jancarik",
 	"license": "MIT",
@@ -30,6 +33,7 @@
 	},
 	"dependencies": {
 		"@biomejs/biome": "^2.5.15",
+		"@esmj/size": "^0.9.1",
 		"@parcel/config-default": "^2.16.4",
 		"@parcel/core": "^2.16.4",
 		"clipboardy": "^3.0.0",
@@ -37,6 +41,8 @@
 		"es-check": "^6.2.1",
 		"jsdom": "^19.0.0",
 		"parcel": "^2.16.4",
+		"pixelmatch": "^8.0.0",
+		"pngjs": "^7.0.0",
 		"pretty": "^2.0.0",
 		"purgecss": "^4.1.3"
 	}

@@ -14,6 +14,7 @@ test('parseArguments provides build defaults', () => {
   assert.deepEqual(options.purgeSafelist, []);
   assert.equal(options.optimize, true);
   assert.equal(options.publicUrl, '/');
+  assert.equal(options.responsiveCss, false);
   assert.equal(options.purge, true);
   assert.equal(options.clipboard, true);
 });
@@ -71,6 +72,11 @@ test('parseArguments supports safelists, optimization control, and public URLs',
   assert.equal(options.publicUrl, './');
   assert.equal(options.dev, true);
   assert.equal(options.open, true);
+});
+
+test('parseArguments enables responsive CSS profiling', () => {
+  const options = parseArguments(['--responsive-css']);
+  assert.equal(options.responsiveCss, true);
 });
 
 test('toProjectRelativePosixPath normalizes Windows-style paths for es-check', () => {

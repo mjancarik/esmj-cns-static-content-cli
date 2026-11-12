@@ -10,6 +10,7 @@ import cssbeautify from 'cssbeautify';
 import { JSDOM } from 'jsdom';
 import htmlpretty from 'pretty';
 import purgecssPackage from 'purgecss';
+import { generateResponsiveCss, normalizeResponsiveOptions } from './responsive-css.mjs';
 
 const require = createRequire(import.meta.url);
 const { PurgeCSS } = purgecssPackage;
@@ -24,6 +25,7 @@ const DEFAULTS = {
   purgeSafelist: [],
   optimize: true,
   publicUrl: '/',
+  responsiveCss: false,
   clipboard: true,
   verbose: false,
   dev: false,
@@ -558,6 +560,11 @@ export function parseArguments(argv) {
       continue;
     }
 
+    if (arg === '--responsive-css') {
+      options.responsiveCss = true;
+      continue;
+    }
+
     if (arg === '--dev') {
       options.dev = true;
       continue;
@@ -677,6 +684,7 @@ export async function build(inputOptions = {}) {
   if (typeof options.publicUrl !== 'string' || !options.publicUrl.trim()) {
     throw new Error('publicUrl must be a non-empty string.');
   }
+  const responsiveOptions = normalizeResponsiveOptions(options.responsiveCss);
   const projectDir = path.resolve(options.cwd);
   const entryPath = resolveProjectPath(projectDir, options.entry);
   const outDir = resolveProjectPath(projectDir, options.outDir);
@@ -742,6 +750,15 @@ export async function build(inputOptions = {}) {
   await fs.writeFile(staticCssPath, formattedCss, 'utf-8');
   await fs.writeFile(staticJsPath, js, 'utf-8');
 
+  const responsiveCss = responsiveOptions.enabled
+    ? await generateResponsiveCss({
+        projectDir,
+        htmlPath: staticHtmlPath,
+        outputPath: path.join(outDir, '__CLASS__.css'),
+        options: responsiveOptions,
+      })
+    : null;
+
   const esCheckEntry = toProjectRelativePosixPath(projectDir, staticJsPath);
 
   await runNodeBin('es-check', ['es9', esCheckEntry, '--module'], {
@@ -761,6 +778,7 @@ export async function build(inputOptions = {}) {
       html: staticHtmlPath,
       css: staticCssPath,
       js: staticJsPath,
+      ...(responsiveCss ? { responsiveCss: responsiveCss.outputPath } : {}),
     },
     ...clipboardResult,
   };

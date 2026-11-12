@@ -103,6 +103,14 @@ test('build bundles HTML, CSS imports, JS modules, JSON, SVG and JPEG outside th
   });
 });
 
+test('responsive CSS profiling reports a missing project Playwright dependency clearly', async (t) => {
+  const cwd = await project(t, 'assets');
+  await assert.rejects(
+    build({ cwd, clipboard: false, purgeIgnore: ['keep.css'], responsiveCss: true }),
+    /Responsive CSS measurement requires Playwright/,
+  );
+});
+
 test('PurgeCSS API safelists have the same exact-selector behavior as its CLI', async (t) => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'purgecss safelist-'));
   t.after(() => fs.rm(cwd, { recursive: true, force: true }));
