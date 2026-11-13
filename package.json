@@ -32,13 +32,16 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@biomejs/biome": "^2.5.15",
+		"@biomejs/biome": "2.6.7",
 		"@esmj/size": "^0.9.1",
 		"@parcel/config-default": "^2.16.4",
 		"@parcel/core": "^2.16.4",
 		"clipboardy": "^3.0.0",
 		"cssbeautify": "^0.3.1",
 		"es-check": "^6.2.1",
+		"identity-obj-proxy": "^3.0.0",
+		"jest": "^30.0.0",
+		"jest-environment-jsdom": "^30.0.0",
 		"jsdom": "^19.0.0",
 		"parcel": "^2.16.4",
 		"pixelmatch": "^8.0.0",

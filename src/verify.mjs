@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
@@ -162,23 +162,27 @@ async function withTemporaryConfig(contents, callback, suffix = '.json') {
 export async function testUnit({ cwd = process.cwd(), config } = {}) {
   const projectDir = path.resolve(cwd);
   const verifyConfig = config ?? await loadVerifyConfig(projectDir);
-  const jestPath = resolveProjectEntry(projectDir, ['jest/bin/jest.js', 'jest-cli/bin/jest.js'], 'Jest');
+  const jestPath = fileURLToPath(new URL('./jest-runner.mjs', import.meta.url));
   const jestConfig = createJestConfig(projectDir, verifyConfig.unit);
   return withTemporaryConfig(JSON.stringify(jestConfig, null, 2), (configPath) =>
     runNodeScript(jestPath, ['--config', configPath, '--runInBand'], projectDir));
 }
 
 export function createJestConfig(projectDir, overrides = {}) {
+  const testEnvironment = overrides.testEnvironment;
   return {
     rootDir: projectDir,
     modulePaths: [projectDir],
     testRegex: '(/__tests__/).*Spec\\.jsx?$',
     moduleNameMapper: {
       [FILE_MAPPER]: '<rootDir>/__mocks__/fileMock.js',
-      [STYLE_MAPPER]: 'identity-obj-proxy',
+      [STYLE_MAPPER]: require.resolve('identity-obj-proxy'),
       [ALIAS_MAPPER]: '<rootDir>/share/$1',
     },
     ...overrides,
+    ...(testEnvironment === 'jsdom' || testEnvironment === 'jest-environment-jsdom'
+      ? { testEnvironment: require.resolve('jest-environment-jsdom') }
+      : {}),
   };
 }
 

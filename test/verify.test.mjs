@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import { execFile } from 'node:child_process';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -24,6 +25,7 @@ import {
 
 const execute = promisify(execFile);
 const cli = fileURLToPath(new URL('../src/cli.mjs', import.meta.url));
+const require = createRequire(import.meta.url);
 
 async function temporaryProject(t) {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'cns-verify-test-'));
@@ -103,9 +105,39 @@ test('CLI-owned Jest defaults preserve the requested mappings and allow override
   assert.deepEqual(config.modulePaths, ['/repo']);
   assert.equal(config.testRegex, '(/__tests__/).*Spec\\.jsx?$');
   assert.equal(config.moduleNameMapper[String.raw`\.(jpg|jpeg|png|gif|eot|otf|webp|svg|ttf|woff|woff2|mp4|webm|wav|mp3|m4a|aac|oga)$`], '<rootDir>/__mocks__/fileMock.js');
-  assert.equal(config.moduleNameMapper[String.raw`\.(css|less|scss|sass)$`], 'identity-obj-proxy');
+  assert.equal(config.moduleNameMapper[String.raw`\.(css|less|scss|sass)$`], require.resolve('identity-obj-proxy'));
   assert.equal(config.moduleNameMapper['^@/(.*)$'], '<rootDir>/share/$1');
-  assert.equal(config.testEnvironment, 'jsdom');
+  assert.equal(config.testEnvironment, require.resolve('jest-environment-jsdom'));
+});
+
+test('unit tests use CLI-owned Jest, jsdom and CSS mock outside the CLI project', async (t) => {
+  const cwd = await temporaryProject(t);
+  const testsDirectory = path.join(cwd, 'src/__tests__');
+  const projectJest = path.join(cwd, 'node_modules/jest');
+  await fs.mkdir(testsDirectory, { recursive: true });
+  await fs.writeFile(path.join(cwd, 'package.json'), JSON.stringify({ name: 'test-project' }));
+  const testFile = path.join(testsDirectory, 'exampleSpec.js');
+  await fs.writeFile(testFile, 'test("node environment", () => expect(1 + 1).toBe(2));\n');
+  await execute(process.execPath, [cli, 'test:unit', '--cwd', cwd]);
+
+  await fs.mkdir(projectJest, { recursive: true });
+  await fs.writeFile(path.join(projectJest, 'package.json'), JSON.stringify({
+    name: 'jest', exports: { './bin/jest': './jest.js', './bin/jest.js': './jest.js' },
+  }));
+  await fs.writeFile(path.join(projectJest, 'jest.js'), 'throw new Error("project Jest must not run");\n');
+  await fs.writeFile(path.join(cwd, '.cns-static-content.json'), JSON.stringify({
+    unit: { testEnvironment: 'jsdom' },
+  }));
+  await fs.writeFile(path.join(cwd, 'src/styles.css'), '.title { color: red; }\n');
+  await fs.writeFile(testFile, [
+    'const styles = require("../styles.css");',
+    'test("browser environment and CSS mock", () => {',
+    '  expect(document.createElement("div").tagName).toBe("DIV");',
+    '  expect(styles.title).toBe("title");',
+    '});',
+    '',
+  ].join('\n'));
+  await execute(process.execPath, [cli, 'test:unit', '--cwd', cwd]);
 });
 
 test('temporary static server serves build output and blocks directory traversal', async (t) => {
@@ -180,6 +212,7 @@ test('verify CLI continues to size stage and prints a final summary after unit f
   const cwd = await temporaryProject(t);
   const testsDirectory = path.join(cwd, 'src/__tests__');
   await fs.mkdir(testsDirectory, { recursive: true });
+  await fs.writeFile(path.join(cwd, 'package.json'), JSON.stringify({ name: 'test-project' }));
   await fs.writeFile(path.join(testsDirectory, 'failureSpec.js'), 'test("fails", () => { expect(false).toBe(true); });\n');
   await fs.writeFile(path.join(cwd, 'index.html'), '<!doctype html><html><head><link rel="stylesheet" href="./src/index.css"></head><body><main>ready</main><script type="module" src="./src/index.js"></script></body></html>');
   await fs.writeFile(path.join(cwd, 'src/index.js'), "import './index.css'; window.verifyReady = true;\n");
@@ -189,6 +222,7 @@ test('verify CLI continues to size stage and prints a final summary after unit f
   }));
   await assert.rejects(execute(process.execPath, [cli, 'verify', '--cwd', cwd], { timeout: 120000 }), (error) => {
     assert.equal(error.code, 1);
+    assert.match(error.stderr, /Expected: true/);
     assert.match(error.stdout, /test:unit: FAILED/);
     assert.match(error.stdout, /build: passed/);
     assert.match(error.stdout, /test:size:/);

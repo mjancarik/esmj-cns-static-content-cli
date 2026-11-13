@@ -42,21 +42,22 @@ test('lint arguments default to src and support paths, config, cwd and safe fixe
   assert.throws(() => parseLintArguments(['--dev']), /Unknown lint option/);
 });
 
-test('standalone lint allows warn/error and browser, Jest and Jasmine globals without formatting', async (t) => {
-  const source = 'console.warn("warning"); console.error("error");\n' +
+test('standalone lint allows log/warn/error and browser, Jest and Jasmine globals without formatting', async (t) => {
+  const source = 'console.log("info"); console.warn("warning"); console.error("error");\n' +
     'describe("suite", () => { it("works", () => { expect(window.document).toBeDefined(); }); });\n' +
     'beforeEach(() => { jest.clearAllMocks(); jasmine.clock(); });\n' +
     'globalThis.result = navigator.userAgent;\n';
   const cwd = await project(t, source);
   const result = await lint({ cwd });
   assert.equal(result.exitCode, 0, result.stdout + result.stderr);
+  assert.doesNotMatch(result.stdout + result.stderr, /schema version does not match|DEPRECATED/);
   assert.equal(await fs.readFile(path.join(cwd, 'src/index.js'), 'utf8'), source);
   await assert.rejects(fs.access(path.join(cwd, 'biome.json')));
   await assert.rejects(fs.access(path.join(cwd, 'dist')));
 });
 
-test('baseline rejects console.log and undeclared variables and respects selected files', async (t) => {
-  const cwd = await project(t, 'console.log("debug"); missingGlobal();\n');
+test('baseline rejects other console calls and undeclared variables and respects selected files', async (t) => {
+  const cwd = await project(t, 'console.debug("debug"); missingGlobal();\n');
   const result = await lint({ cwd });
   assert.notEqual(result.exitCode, 0);
   assert.match(result.stderr + result.stdout, /noConsole/);
@@ -86,9 +87,10 @@ test('monorepo JSONC config extends the exported package baseline and overrides 
   await fs.writeFile(path.join(root, 'biome.jsonc'), config);
   const cwd = path.join(root, 'packages/example');
   await fs.mkdir(path.join(cwd, 'src'), { recursive: true });
-  await fs.writeFile(path.join(cwd, 'src/index.js'), 'console.log("monorepo allowed");\n');
+  await fs.writeFile(path.join(cwd, 'src/index.js'), 'console.debug("monorepo allowed");\n');
   const result = await lint({ cwd });
   assert.equal(result.exitCode, 0, result.stdout + result.stderr);
+  assert.doesNotMatch(result.stdout + result.stderr, /schema version does not match|DEPRECATED/);
   assert.equal(await fs.readFile(path.join(root, 'biome.jsonc'), 'utf8'), config);
   // Inherited baseline rules are still enabled even though noConsole was overridden.
   await fs.appendFile(path.join(cwd, 'src/index.js'), 'missingGlobal();\n');
@@ -97,9 +99,9 @@ test('monorepo JSONC config extends the exported package baseline and overrides 
 });
 
 test('explicit config wins and missing or invalid configs fail without fallback', async (t) => {
-  const cwd = await project(t, 'console.log("debug");\n');
+  const cwd = await project(t, 'console.debug("debug");\n');
   await fs.writeFile(path.join(cwd, 'biome.json'), JSON.stringify({
-    linter: { rules: { recommended: false } },
+    linter: { rules: { preset: 'none' } },
   }));
   assert.equal((await lint({ cwd })).exitCode, 0);
   const strict = await lint({ cwd, config: baseline });
@@ -115,9 +117,9 @@ test('explicit config wins and missing or invalid configs fail without fallback'
 
 test('lint CLI runs outside its checkout, reports failures and never invokes a build', async (t) => {
   const cwd = await project(t);
-  const { stdout } = await execute(process.execPath, [cli, 'lint', '--cwd', cwd], { cwd: os.tmpdir() });
-  assert.match(stdout, /Checked 1 file/);
-  await fs.writeFile(path.join(cwd, 'src/index.js'), 'console.log("debug");\n');
+  const { stdout, stderr } = await execute(process.execPath, [cli, 'lint', '--cwd', cwd], { cwd: os.tmpdir() });
+  assert.match(stdout + stderr, /Checked 1 file/);
+  await fs.writeFile(path.join(cwd, 'src/index.js'), 'console.debug("debug");\n');
   await assert.rejects(execute(process.execPath, [cli, 'lint', '--cwd', cwd]), (error) => {
     assert.equal(error.code, 1);
     assert.match(error.stderr, /noConsole/);

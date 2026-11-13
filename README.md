@@ -221,9 +221,10 @@ widths are the first sampled widths at which the rounded content height changes.
 
 The checks are also available individually as `test:unit`, `test:size`,
 `test:e2e`, and `test:regression`. Size, E2E, and regression commands build when
-run alone. `verify` shares its production build among those checks. Unit and
-Playwright checks use the versions installed by the project or a monorepo
-ancestor; Playwright's browser must already be installed. E2E tests should be in
+run alone. `verify` shares its production build among those checks. Unit tests
+use the CLI's Jest, jsdom environment, and CSS mock dependencies; no project Jest
+installation is required. Playwright checks use the version installed by the
+project or a monorepo ancestor, and its browser must already be installed. E2E tests should be in
 `e2e/` by default and can navigate with `page.goto('/')` using Playwright's
 configured `baseURL`.
 
@@ -294,7 +295,7 @@ The JavaScript API is available through `@esmj/cns-static-content-cli/lint`:
 ### ESLint and Prettier migration notes
 
 The baseline enables Biome's recommended rules, rejects undeclared variables,
-and prohibits console calls except `console.warn` and `console.error`.
+and prohibits console calls except `console.log`, `console.warn`, and `console.error`.
 Browser globals and `globalThis` are recognized by Biome; common Jasmine and
 Jest globals are declared in the preset.
 
