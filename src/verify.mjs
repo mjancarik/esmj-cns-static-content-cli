@@ -276,13 +276,8 @@ async function waitForServer(url, child, timeoutMs = 30000) {
 }
 
 async function startParcelServer(projectDir, entry, port) {
-  const parcelPackage = require.resolve('parcel/package.json');
-  const parcelManifest = JSON.parse(await fs.readFile(parcelPackage, 'utf8'));
-  const bin = typeof parcelManifest.bin === 'string'
-    ? parcelManifest.bin
-    : parcelManifest.bin.parcel;
-  const parcelPath = path.resolve(path.dirname(parcelPackage), bin);
-  const child = spawn(process.execPath, [parcelPath, 'serve', `./${entry}`, '--port', String(port), '--host', '127.0.0.1', '--no-cache'], {
+  const parcelPath = fileURLToPath(new URL('./parcel-serve.mjs', import.meta.url));
+  const child = spawn(process.execPath, [parcelPath, `./${entry}`, 'dist', String(port), '127.0.0.1', '/', 'false'], {
     cwd: projectDir,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env },

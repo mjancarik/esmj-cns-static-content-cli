@@ -1,6 +1,4 @@
-const isProduction = typeof process !== 'undefined' && process.env.NODE_ENV === 'production';
-
-if (!isProduction && typeof window !== 'undefined') {
+if (process.env.NODE_ENV !== 'production' && typeof window !== 'undefined') {
 	window.$resizeStaticContent = () => {
     console.log('[Mock] resizeStaticContent function activated');
   };

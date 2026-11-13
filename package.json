@@ -15,7 +15,11 @@
 	},
 	"files": [
 		"src/",
-		"agent/"
+		"agent/",
+		"vendor/"
+	],
+	"bundleDependencies": [
+		"parcel-resolver-cns-exports"
 	],
 	"scripts": {
 		"lint": "biome lint .",
@@ -36,6 +40,10 @@
 		"@esmj/size": "^0.9.1",
 		"@parcel/config-default": "^2.16.4",
 		"@parcel/core": "^2.16.4",
+		"@parcel/node-resolver-core": "^3.7.4",
+		"@parcel/plugin": "^2.16.4",
+		"@parcel/reporter-cli": "^2.16.4",
+		"@parcel/utils": "^2.16.4",
 		"clipboardy": "^3.0.0",
 		"cssbeautify": "^0.3.1",
 		"es-check": "^6.2.1",
@@ -44,6 +52,7 @@
 		"jest-environment-jsdom": "^30.0.0",
 		"jsdom": "^19.0.0",
 		"parcel": "^2.16.4",
+		"parcel-resolver-cns-exports": "file:vendor/parcel-resolver-cns-exports",
 		"pixelmatch": "^8.0.0",
 		"playwright": "1.65.0",
 		"pngjs": "^7.0.0",

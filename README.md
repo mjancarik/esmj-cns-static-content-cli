@@ -160,7 +160,11 @@ Outside production builds, this installs `$resizeStaticContent`,
 `$redirectAllLinks`, `$redirect`, `$redirectToUrl`, `DOT.hit`, and
 `scriptLoader.load` on `window`. Redirect and analytics calls are logged;
 resize and link-redirection calls are no-ops. In production, the module has no
-effect. In Node.js environments without `window`, it also safely does nothing.
+effect, and optimized builds discard its contents. In Node.js environments
+without `window`, it also safely does nothing.
+The CLI enables Parcel package exports by default, so this import needs no
+resolver setting in the project's `package.json`. A custom `.parcelrc` retains
+control over its own resolvers.
 
 ### Generate responsive height rules
 

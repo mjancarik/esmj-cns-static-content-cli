@@ -641,24 +641,15 @@ export async function serve(inputOptions = {}) {
   }
 
   const parcelArgs = [
-    'serve',
     `./${path.relative(projectDir, entryPath)}`,
-    '--dist-dir',
     options.outDir,
-    '--port',
     String(options.port),
-    '--host',
     options.host,
-    '--public-url',
     options.publicUrl,
-    '--no-cache',
+    String(options.open),
   ];
 
-  if (options.open) {
-    parcelArgs.push('--open');
-  }
-
-  await runNodeBin('parcel', parcelArgs,
+  await runNodeFile(fileURLToPath(new URL('./parcel-serve.mjs', import.meta.url)), parcelArgs,
     {
       cwd: projectDir,
       verbose: true,
@@ -711,7 +702,7 @@ export async function build(inputOptions = {}) {
     {
       cwd: projectDir,
       verbose: options.verbose,
-      env: { NODE_ENV: process.env.NODE_ENV || 'production' },
+      env: { NODE_ENV: 'production' },
     }
   );
 

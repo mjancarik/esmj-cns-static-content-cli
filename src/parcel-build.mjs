@@ -1,8 +1,7 @@
-import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import parcel from '@parcel/core';
 import { BROWSER_TARGETS } from './browser-targets.mjs';
 
-const require = createRequire(import.meta.url);
 const { Parcel } = parcel;
 const [entry, outDir, verbose, optimize, publicUrl] = process.argv.slice(2);
 
@@ -10,7 +9,7 @@ const [entry, outDir, verbose, optimize, publicUrl] = process.argv.slice(2);
 try {
   const bundler = new Parcel({
     entries: entry,
-    defaultConfig: require.resolve('@parcel/config-default'),
+    defaultConfig: fileURLToPath(new URL('./parcel-config.json', import.meta.url)),
     mode: 'production',
     shouldAutoInstall: false,
     defaultTargetOptions: {

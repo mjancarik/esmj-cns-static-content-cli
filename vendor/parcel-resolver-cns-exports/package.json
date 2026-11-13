@@ -1,0 +1,12 @@
+{
+  "name": "parcel-resolver-cns-exports",
+  "version": "1.0.0",
+  "main": "index.cjs",
+  "engines": {
+    "parcel": "^2.16.4"
+  },
+  "peerDependencies": {
+    "@parcel/node-resolver-core": "^3.7.4",
+    "@parcel/plugin": "^2.16.4"
+  }
+}

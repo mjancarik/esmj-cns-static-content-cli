@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +18,8 @@ import { generateResponsiveCss } from '../src/responsive-css.mjs';
 const execute = promisify(execFile);
 const fixtures = fileURLToPath(new URL('./fixtures/', import.meta.url));
 const cli = fileURLToPath(new URL('../src/cli.mjs', import.meta.url));
+const parcelServe = fileURLToPath(new URL('../src/parcel-serve.mjs', import.meta.url));
+const repository = fileURLToPath(new URL('../', import.meta.url));
 const purgecssBin = fileURLToPath(new URL('../node_modules/purgecss/bin/purgecss.js', import.meta.url));
 const { PurgeCSS } = purgecssPackage;
 
@@ -104,6 +107,109 @@ test('build bundles HTML, CSS imports, JS modules, JSON, SVG and JPEG outside th
     title: 'Bundled JSON', items: ['SVG', 'JPEG', 'CSS'], enabled: true,
   });
 });
+
+test('mock package export is included in development and removed in production', async (t) => {
+  const cwd = await project(t, 'assets');
+  await fs.mkdir(path.join(cwd, 'node_modules/@esmj'), { recursive: true });
+  await fs.symlink(repository, path.join(cwd, 'node_modules/@esmj/cns-static-content-cli'), 'junction');
+  await fs.appendFile(path.join(cwd, 'src/index.js'), "\nimport '@esmj/cns-static-content-cli/mock';\n");
+  const packagePath = path.join(cwd, 'package.json');
+  const originalPackage = await fs.readFile(packagePath, 'utf8');
+
+  await execute(process.execPath, [cli, '--cwd', cwd, '--no-clipboard'], {
+    cwd: os.tmpdir(),
+    env: { ...process.env, NODE_ENV: 'development' },
+    timeout: 120000,
+  });
+  const result = {
+    outputs: {
+      html: path.join(cwd, 'dist/staticContent.html'),
+      css: path.join(cwd, 'dist/staticContent.css'),
+      js: path.join(cwd, 'dist/staticContent.js'),
+    },
+  };
+  const js = await fs.readFile(result.outputs.js, 'utf8');
+  assert.doesNotMatch(js, /\[Mock\]/);
+  const { dom } = await artifacts(result);
+  t.after(() => dom.window.close());
+  dom.window.eval(js);
+  assert.equal(dom.window.$resizeStaticContent, undefined);
+  assert.equal(await fs.readFile(packagePath, 'utf8'), originalPackage);
+
+  const port = await new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port: available } = server.address();
+      server.close((error) => error ? reject(error) : resolve(available));
+    });
+  });
+  const server = spawn(process.execPath, [parcelServe, './src/index.html', 'dist', String(port), '127.0.0.1', '/', 'false'], {
+    cwd,
+    env: { ...process.env, NODE_ENV: 'production' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let logs = '';
+  server.stdout.on('data', (chunk) => { logs += chunk; });
+  server.stderr.on('data', (chunk) => { logs += chunk; });
+  t.after(async () => {
+    if (server.exitCode !== null || server.signalCode !== null) return;
+    await new Promise((resolve) => {
+      server.once('close', resolve);
+      server.kill('SIGTERM');
+    });
+  });
+  const url = `http://127.0.0.1:${port}/`;
+  let response;
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    if (server.exitCode !== null) throw new Error(`Parcel server exited: ${logs}`);
+    try {
+      response = await fetch(url);
+      if (response.ok) break;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.ok(response?.ok, `Parcel server did not start: ${logs}`);
+  const page = new JSDOM(await response.text(), { url, runScripts: 'outside-only' });
+  t.after(() => page.window.close());
+  const scriptUrl = new URL(page.window.document.querySelector('script[type="module"]').getAttribute('src'), url);
+  const script = await fetch(scriptUrl);
+  assert.equal(script.status, 200);
+  page.window.eval(await script.text());
+  assert.equal(typeof page.window.$resizeStaticContent, 'function');
+  assert.equal(typeof page.window.DOT.hit, 'function');
+  assert.equal(await fs.readFile(packagePath, 'utf8'), originalPackage);
+});
+
+for (const scenario of ['default', 'project override', 'custom parcelrc']) {
+  test(`package exports respect ${scenario}`, async (t) => {
+    const cwd = await project(t, 'assets');
+    const packagePath = path.join(cwd, 'package.json');
+    const manifest = JSON.parse(await fs.readFile(packagePath, 'utf8'));
+    if (scenario === 'project override') manifest['@parcel/resolver-default'] = { packageExports: false };
+    const originalPackage = JSON.stringify(manifest);
+    await fs.writeFile(packagePath, originalPackage);
+    const dependency = path.join(cwd, 'node_modules/export-example');
+    await fs.mkdir(dependency, { recursive: true });
+    await fs.writeFile(path.join(dependency, 'package.json'), JSON.stringify({
+      name: 'export-example', main: './legacy.js', exports: './export.js',
+    }));
+    await fs.writeFile(path.join(dependency, 'legacy.js'), 'export default "legacy";\n');
+    await fs.writeFile(path.join(dependency, 'export.js'), 'export default "exports";\n');
+    await fs.appendFile(path.join(cwd, 'src/index.js'), '\nimport marker from "export-example"; window.exportMarker = marker;\n');
+    if (scenario === 'custom parcelrc') {
+      await fs.mkdir(path.join(cwd, 'node_modules/@parcel'), { recursive: true });
+      await fs.symlink(path.join(repository, 'node_modules/@parcel/config-default'), path.join(cwd, 'node_modules/@parcel/config-default'), 'junction');
+      await fs.writeFile(path.join(cwd, '.parcelrc'), JSON.stringify({ extends: '@parcel/config-default' }));
+    }
+    const result = await build({ cwd, clipboard: false });
+    const { dom, js } = await artifacts(result);
+    t.after(() => dom.window.close());
+    dom.window.eval(js);
+    assert.equal(dom.window.exportMarker, scenario === 'default' ? 'exports' : 'legacy');
+    assert.equal(await fs.readFile(packagePath, 'utf8'), originalPackage);
+  });
+}
 
 test('responsive CSS profiling uses CLI Playwright outside the CLI project', async (t) => {
   const cwd = await project(t, 'assets');
