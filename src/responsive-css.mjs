@@ -2,7 +2,8 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
+
+const require = createRequire(import.meta.url);
 
 const DEFAULTS = {
   selector: 'main',
@@ -96,18 +97,6 @@ export function formatResponsiveCss(measurements, { roundToRem = 0.25, includeAm
   }).join('\n\n')}\n`;
 }
 
-async function findPlaywright(projectDir) {
-  const projectRequire = createRequire(path.join(projectDir, 'package.json'));
-  for (const packageName of ['playwright', '@playwright/test']) {
-    try {
-      return await import(pathToFileURL(projectRequire.resolve(packageName)).href);
-    } catch (error) {
-      if (error.code !== 'MODULE_NOT_FOUND' && error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') throw error;
-    }
-  }
-  throw new Error('Responsive CSS measurement requires Playwright installed in the project or a monorepo ancestor. Install playwright or @playwright/test and its Chromium browser.');
-}
-
 function startStaticServer(rootDirectory, indexFile) {
   const root = path.resolve(rootDirectory);
   const server = http.createServer(async (request, response) => {
@@ -143,14 +132,20 @@ function startStaticServer(rootDirectory, indexFile) {
   });
 }
 
-export async function generateResponsiveCss({ projectDir, htmlPath, outputPath, options = true }) {
+export async function generateResponsiveCss({ htmlPath, outputPath, options = true }) {
   const settings = normalizeResponsiveOptions(options);
   if (!settings.enabled) return null;
-  const { chromium } = await findPlaywright(path.resolve(projectDir));
+  const { chromium } = await import('playwright');
   const server = await startStaticServer(path.dirname(htmlPath), path.basename(htmlPath));
   let browser;
   try {
-    browser = await chromium.launch({ headless: true });
+    try {
+      browser = await chromium.launch({ headless: true });
+    } catch (error) {
+      if (!error.message.includes("Executable doesn't exist")) throw error;
+      const { version } = require('playwright/package.json');
+      throw new Error(`${error.message}\nInstall the CLI's matching Chromium with: npx --yes playwright@${version} install chromium`, { cause: error });
+    }
     const page = await browser.newPage({
       viewport: { width: settings.maxWidth, height: settings.viewportHeight },
     });

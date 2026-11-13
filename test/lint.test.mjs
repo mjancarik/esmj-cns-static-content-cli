@@ -33,6 +33,9 @@ test('lint arguments default to src and support paths, config, cwd and safe fixe
     paths: ['src/index.js', 'tests'],
   });
   assert.equal(parseLintArguments(['-h']).help, true);
+  assert.deepEqual(parseLintArguments(['--unsafe', '--write']), {
+    cwd: process.cwd(), paths: ['src'], write: true, unsafe: true, help: false,
+  });
   assert.deepEqual(parseLintArguments(['--', '-file.js']).paths, ['-file.js']);
   for (const option of ['--cwd', '--config']) {
     assert.throws(() => parseLintArguments([option]), /Missing value/);
@@ -76,6 +79,25 @@ test('safe fixes are opt-in and do not reformat source', async (t) => {
   const result = await lint({ cwd, write: true });
   assert.equal(result.exitCode, 0, result.stderr);
   assert.match(await fs.readFile(file, 'utf8'), /const count/);
+});
+
+test('unsafe fixes require explicit opt-in via the API and CLI', async (t) => {
+  const cwd = await project(t, 'console.debug("debug");\nconsole.warn("kept");\n');
+  const file = path.join(cwd, 'src/index.js');
+  const safe = await lint({ cwd, write: true });
+  assert.notEqual(safe.exitCode, 0);
+  assert.match(await fs.readFile(file, 'utf8'), /console\.debug/);
+  await assert.rejects(lint({ cwd, unsafe: true }), /requires --write/);
+  await assert.rejects(lint({ cwd, unsafe: 'yes' }), /boolean/);
+  await assert.rejects(execute(process.execPath, [cli, 'lint', '--cwd', cwd, '--unsafe']), /requires --write/);
+  await execute(process.execPath, [cli, 'lint', '--cwd', cwd, '--write', '--unsafe']);
+  const fixed = await fs.readFile(file, 'utf8');
+  assert.doesNotMatch(fixed, /console\.debug/);
+  assert.match(fixed, /console\.warn/);
+  await fs.writeFile(file, 'console.debug("debug");\n');
+  const apiResult = await lint({ cwd, write: true, unsafe: true });
+  assert.equal(apiResult.exitCode, 0, apiResult.stdout + apiResult.stderr);
+  assert.doesNotMatch(await fs.readFile(file, 'utf8'), /console\.debug/);
 });
 
 test('monorepo JSONC config extends the exported package baseline and overrides rules', async (t) => {

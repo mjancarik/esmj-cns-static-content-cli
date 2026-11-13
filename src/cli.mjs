@@ -33,6 +33,7 @@ Lint options:
   --cwd <directory>         Project directory (default: current directory)
   --config <path>           Biome configuration file or directory
   --write                   Apply safe lint fixes (no formatting)
+  --unsafe                  Include unsafe fixes; requires --write
   -h, --help                Show help
 
 Options:

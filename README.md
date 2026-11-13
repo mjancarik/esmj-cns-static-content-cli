@@ -166,7 +166,7 @@ effect. In Node.js environments without `window`, it also safely does nothing.
 
 Add `--responsive-css` to a production build to run a post-build browser pass.
 It serves the generated `staticContent.html`, launches headless Chromium through
-the consuming project's `playwright` or `@playwright/test` installation, and
+the CLI's Playwright dependency, and
 measures the `main` element from 1600px down to 320px in 4px steps. Heights are
 rounded to the nearest 0.25rem. The first sampled width where the measured height
 changes becomes a `max-width` breakpoint. If an `amp-iframe` inside `main` is
@@ -175,10 +175,11 @@ visible at that width, its selector is grouped with the class placeholder.
 The generated rules are written to `dist/__CLASS__.css` (or the configured
 output directory) and printed to the terminal after the standard build output.
 `__CLASS__` is intentionally literal for the consuming application to replace.
-This feature is opt-in and requires the project to have Playwright and its
-Chromium browser installed; normal builds do not need Playwright.
+This feature is opt-in. Install the matching Chromium browser once; normal builds
+do not need it. The Playwright version below matches the CLI's dependency:
 
 ```bash
+npx --yes playwright@1.65.0 install chromium
 esmj-cns-static-content-cli --responsive-css
 ```
 
@@ -271,6 +272,8 @@ or consumer configuration changes are involved.
 - `--cwd <directory>` selects the project directory.
 - `--config <path>` explicitly selects a Biome config file or directory, relative to the project.
 - `--write` applies safe lint fixes. It does not run the formatter or unsafe fixes.
+- `--write --unsafe` also applies Biome's unsafe fixes, which may change behavior.
+  Some diagnostics have no automatic fix and still require manual changes.
 - `--help` displays help. Biome diagnostics and exit status are returned by the CLI.
 
 Configuration selection: an explicit `--config` wins; otherwise an existing
@@ -289,7 +292,7 @@ config automatically. For per-package overrides, use Biome's nested configuratio
 with `"root": false` and `"extends": ["//"]` to inherit the monorepo root.
 
 The JavaScript API is available through `@esmj/cns-static-content-cli/lint`:
-`lint({ cwd, paths: ['src'], config, write: false })` returns
+`lint({ cwd, paths: ['src'], config, write: false, unsafe: false })` returns
 `{ exitCode, stdout, stderr }`. `parseLintArguments` is exported from the same module.
 
 ### ESLint and Prettier migration notes

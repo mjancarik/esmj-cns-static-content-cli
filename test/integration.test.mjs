@@ -9,8 +9,10 @@ import test from 'node:test';
 
 import clipboardy from 'clipboardy';
 import { JSDOM } from 'jsdom';
+import { chromium } from 'playwright';
 import purgecssPackage from 'purgecss';
 import { build } from '../src/build.mjs';
+import { generateResponsiveCss } from '../src/responsive-css.mjs';
 
 const execute = promisify(execFile);
 const fixtures = fileURLToPath(new URL('./fixtures/', import.meta.url));
@@ -103,12 +105,54 @@ test('build bundles HTML, CSS imports, JS modules, JSON, SVG and JPEG outside th
   });
 });
 
-test('responsive CSS profiling reports a missing project Playwright dependency clearly', async (t) => {
+test('responsive CSS profiling uses CLI Playwright outside the CLI project', async (t) => {
   const cwd = await project(t, 'assets');
-  await assert.rejects(
-    build({ cwd, clipboard: false, purgeIgnore: ['keep.css'], responsiveCss: true }),
-    /Responsive CSS measurement requires Playwright/,
+  const projectPlaywright = path.join(cwd, 'node_modules/playwright');
+  await fs.mkdir(projectPlaywright, { recursive: true });
+  await fs.writeFile(path.join(projectPlaywright, 'index.js'), 'throw new Error("project Playwright must not run");\n');
+  const originalLaunch = chromium.launch;
+  t.after(() => { chromium.launch = originalLaunch; });
+  let width;
+  const locator = {
+    count: async () => 1,
+    evaluate: async () => ({ width, heightRem: width > 320 ? 10 : 20, ampIframeVisible: false }),
+  };
+  chromium.launch = async () => ({
+    newPage: async () => ({
+      goto: async () => {},
+      evaluate: async () => {},
+      locator: () => locator,
+      setViewportSize: async (viewport) => { width = viewport.width; },
+    }),
+    close: async () => {},
+  });
+  const result = await build({
+    cwd,
+    clipboard: false,
+    purgeIgnore: ['keep.css'],
+    responsiveCss: { minWidth: 320, maxWidth: 324, step: 4 },
+  });
+  assert.equal(result.outputs.responsiveCss, path.join(cwd, 'dist/__CLASS__.css'));
+  assert.equal(
+    await fs.readFile(result.outputs.responsiveCss, 'utf8'),
+    '__CLASS__ {\n  height: 10rem;\n}\n\n@media only screen and (max-width: 320px) {\n  __CLASS__ {\n    height: 20rem;\n  }\n}\n',
   );
+});
+
+test('responsive CSS reports the matching browser installation command', async (t) => {
+  const cwd = await project(t, 'assets');
+  const originalLaunch = chromium.launch;
+  t.after(() => { chromium.launch = originalLaunch; });
+  const missingBrowser = new Error("Executable doesn't exist");
+  chromium.launch = async () => { throw missingBrowser; };
+  await assert.rejects(generateResponsiveCss({
+    htmlPath: path.join(cwd, 'src/index.html'),
+    outputPath: path.join(cwd, 'out.css'),
+  }), (error) => {
+    assert.equal(error.cause, missingBrowser);
+    assert.match(error.message, /npx --yes playwright@[\d.]+ install chromium/);
+    return true;
+  });
 });
 
 test('PurgeCSS API safelists have the same exact-selector behavior as its CLI', async (t) => {

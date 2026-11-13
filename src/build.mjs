@@ -752,7 +752,6 @@ export async function build(inputOptions = {}) {
 
   const responsiveCss = responsiveOptions.enabled
     ? await generateResponsiveCss({
-        projectDir,
         htmlPath: staticHtmlPath,
         outputPath: path.join(outDir, '__CLASS__.css'),
         options: responsiveOptions,

@@ -45,6 +45,7 @@
 		"jsdom": "^19.0.0",
 		"parcel": "^2.16.4",
 		"pixelmatch": "^8.0.0",
+		"playwright": "1.65.0",
 		"pngjs": "^7.0.0",
 		"pretty": "^2.0.0",
 		"purgecss": "^4.1.3"

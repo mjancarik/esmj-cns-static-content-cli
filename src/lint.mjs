@@ -18,6 +18,8 @@ export function parseLintArguments(argv) {
       positionalOnly = true;
     } else if (arg === '--write') {
       options.write = true;
+    } else if (arg === '--unsafe') {
+      options.unsafe = true;
     } else if (arg === '--help' || arg === '-h') {
       options.help = true;
     } else if (arg === '--cwd' || arg === '--config') {
@@ -54,11 +56,13 @@ async function hasProjectConfig(cwd) {
   }
 }
 
-export async function lint({ cwd = process.cwd(), paths = ['src'], config, write = false } = {}) {
+export async function lint({ cwd = process.cwd(), paths = ['src'], config, write = false, unsafe = false } = {}) {
   if (!Array.isArray(paths) || paths.length === 0 || paths.some((value) => typeof value !== 'string' || !value.trim())) {
     throw new Error('Lint paths must be a non-empty array of file or directory paths.');
   }
   if (typeof write !== 'boolean') throw new Error('Lint write must be a boolean.');
+  if (typeof unsafe !== 'boolean') throw new Error('Lint unsafe must be a boolean.');
+  if (unsafe && !write) throw new Error('Lint --unsafe requires --write.');
   if (config !== undefined && (typeof config !== 'string' || !config.trim())) {
     throw new Error('Lint config must be a non-empty file or directory path.');
   }
@@ -71,6 +75,7 @@ export async function lint({ cwd = process.cwd(), paths = ['src'], config, write
   const args = ['lint'];
   if (configPath) args.push('--config-path', configPath);
   if (write) args.push('--write');
+  if (unsafe) args.push('--unsafe');
   // Resolve paths ourselves so paths beginning with '-' cannot become Biome flags.
   args.push(...paths.map((value) => path.resolve(projectDir, value)));
 
