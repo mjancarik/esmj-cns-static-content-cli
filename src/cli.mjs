@@ -48,6 +48,7 @@ Options:
   --no-optimize              Disable Parcel production optimization
   --public-url <url>         Parcel public URL (default: /)
   --responsive-css           Measure main height from 1600px to 320px with Playwright
+  --responsive-css-debug     Profile with a visible, slowed-down Chromium browser
   --dev                     Start a Parcel dev server with watch mode and HMR
   --watch                   Alias for --dev
   --open                    Open the dev URL in the browser

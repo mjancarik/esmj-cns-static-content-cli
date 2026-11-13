@@ -52,6 +52,7 @@ Options:
   --no-optimize             Disable Parcel production optimization
   --public-url <url>        Parcel public URL (default: /)
   --responsive-css          Measure main height from 1600px to 320px with Playwright
+  --responsive-css-debug    Profile with a visible, slowed-down Chromium browser
   --dev                    Start a Parcel dev server with watch mode and HMR
   --watch                  Alias for --dev
   --open                   Open the dev URL in the browser
@@ -169,9 +170,9 @@ control over its own resolvers.
 ### Generate responsive height rules
 
 Add `--responsive-css` to a production build to run a post-build browser pass.
-It serves the generated `staticContent.html`, launches headless Chromium through
-the CLI's Playwright dependency, and
-measures the `main` element from 1600px down to 320px in 4px steps. Heights are
+It serves the generated `staticContent.html` fragment in a temporary `main`
+wrapper, launches headless Chromium through the CLI's Playwright dependency, and
+measures that wrapper from 1600px down to 320px in 4px steps. Heights are
 rounded to the nearest 0.25rem. The first sampled width where the measured height
 changes becomes a `max-width` breakpoint. If an `amp-iframe` inside `main` is
 visible at that width, its selector is grouped with the class placeholder.
@@ -187,6 +188,16 @@ npx --yes playwright@1.65.0 install chromium
 esmj-cns-static-content-cli --responsive-css
 ```
 
+To see and debug the browser during measurement, run:
+
+```bash
+esmj-cns-static-content-cli --responsive-css-debug --no-clipboard
+```
+
+This enables responsive profiling, opens Chromium visibly, and slows browser
+actions by 100 ms. It closes the browser when profiling finishes. A graphical
+display and Playwright's full Chromium installation are required.
+
 The JavaScript build API also accepts `responsiveCss: true` or an options object:
 
 ```js
@@ -199,6 +210,7 @@ await build({
     viewportHeight: 900,
     roundToRem: 0.25,
     includeAmpIframe: true,
+    debug: false,
     waitForSelector: '#content-ready',
     waitMs: 100,
   },

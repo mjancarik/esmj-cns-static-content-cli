@@ -13,6 +13,7 @@ const DEFAULTS = {
   viewportHeight: 900,
   roundToRem: 0.25,
   includeAmpIframe: true,
+  debug: false,
   waitForSelector: null,
   waitMs: 0,
 };
@@ -44,6 +45,9 @@ export function normalizeResponsiveOptions(input = true) {
   }
   if (typeof options.includeAmpIframe !== 'boolean') {
     throw new Error('responsiveCss.includeAmpIframe must be a boolean.');
+  }
+  if (typeof options.debug !== 'boolean') {
+    throw new Error('responsiveCss.debug must be a boolean.');
   }
   if (options.waitForSelector !== null && typeof options.waitForSelector !== 'string') {
     throw new Error('responsiveCss.waitForSelector must be a CSS selector string or null.');
@@ -109,11 +113,14 @@ function startStaticServer(rootDirectory, indexFile) {
         response.writeHead(403).end('Forbidden');
         return;
       }
-      const data = await fs.readFile(target);
+      let data = await fs.readFile(target);
       const extension = path.extname(target).toLowerCase();
       const type = extension === '.html' ? 'text/html; charset=utf-8'
         : extension === '.css' ? 'text/css; charset=utf-8'
           : extension === '.js' ? 'text/javascript; charset=utf-8' : 'application/octet-stream';
+      if (rawPath === '/') {
+        data = Buffer.from(`<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><main data-cns-responsive-root>${data.toString('utf8')}</main></body></html>`);
+      }
       response.writeHead(200, { 'content-type': type, 'content-length': data.length });
       response.end(data);
     } catch {
@@ -140,7 +147,10 @@ export async function generateResponsiveCss({ htmlPath, outputPath, options = tr
   let browser;
   try {
     try {
-      browser = await chromium.launch({ headless: true });
+      browser = await chromium.launch({
+        headless: !settings.debug,
+        ...(settings.debug ? { slowMo: 100 } : {}),
+      });
     } catch (error) {
       if (!error.message.includes("Executable doesn't exist")) throw error;
       const { version } = require('playwright/package.json');
@@ -153,7 +163,11 @@ export async function generateResponsiveCss({ htmlPath, outputPath, options = tr
     await page.evaluate(() => document.fonts.ready);
     if (settings.waitForSelector) await page.locator(settings.waitForSelector).waitFor();
     if (settings.waitMs > 0) await page.waitForTimeout(settings.waitMs);
-    const count = await page.locator(settings.selector).count();
+    const targetSelector = settings.selector === 'main'
+      ? 'main[data-cns-responsive-root]'
+      : settings.selector;
+    const target = page.locator(targetSelector);
+    const count = await target.count();
     if (count === 0) {
       throw new Error(`Responsive CSS target not found: ${settings.selector}`);
     }
@@ -164,7 +178,7 @@ export async function generateResponsiveCss({ htmlPath, outputPath, options = tr
     if (widths.at(-1) !== settings.minWidth) widths.push(settings.minWidth);
     for (const width of widths) {
       await page.setViewportSize({ width, height: settings.viewportHeight });
-      actualMeasurements.push(await page.locator(settings.selector).evaluate((element, includeAmpIframe) => {
+      actualMeasurements.push(await target.evaluate((element, includeAmpIframe) => {
         const rootFontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
         const rect = element.getBoundingClientRect();
         const height = Math.max(element.scrollHeight, rect.height, element.clientHeight);

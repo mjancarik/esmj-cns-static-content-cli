@@ -561,7 +561,12 @@ export function parseArguments(argv) {
     }
 
     if (arg === '--responsive-css') {
-      options.responsiveCss = true;
+      if (!options.responsiveCss) options.responsiveCss = true;
+      continue;
+    }
+
+    if (arg === '--responsive-css-debug') {
+      options.responsiveCss = { debug: true };
       continue;
     }
 

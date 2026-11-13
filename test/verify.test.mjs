@@ -206,6 +206,7 @@ test('responsive CSS settings are validated and support a custom viewport range'
   assert.throws(() => normalizeResponsiveOptions({ step: 1281 }), /step must be smaller/);
   assert.throws(() => normalizeResponsiveOptions({ selector: '' }), /selector must be/);
   assert.throws(() => normalizeResponsiveOptions({ roundToRem: 0 }), /roundToRem/);
+  assert.throws(() => normalizeResponsiveOptions({ debug: 'true' }), /responsiveCss\.debug/);
 });
 
 test('verify CLI continues to size stage and prints a final summary after unit failure', async (t) => {

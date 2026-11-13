@@ -219,19 +219,27 @@ test('responsive CSS profiling uses CLI Playwright outside the CLI project', asy
   const originalLaunch = chromium.launch;
   t.after(() => { chromium.launch = originalLaunch; });
   let width;
-  const locator = {
-    count: async () => 1,
-    evaluate: async () => ({ width, heightRem: width > 320 ? 10 : 20, ampIframeVisible: false }),
+  let pageDom;
+  const launchOptions = [];
+  chromium.launch = async (options) => {
+    launchOptions.push(options);
+    return {
+      newPage: async () => ({
+        goto: async (url) => {
+          const response = await fetch(url);
+          assert.equal(response.status, 200);
+          pageDom = new JSDOM(await response.text());
+        },
+        evaluate: async () => {},
+        locator: (selector) => ({
+          count: async () => pageDom.window.document.querySelectorAll(selector).length,
+          evaluate: async () => ({ width, heightRem: width > 320 ? 10 : 20, ampIframeVisible: false }),
+        }),
+        setViewportSize: async (viewport) => { width = viewport.width; },
+      }),
+      close: async () => { pageDom?.window.close(); },
+    };
   };
-  chromium.launch = async () => ({
-    newPage: async () => ({
-      goto: async () => {},
-      evaluate: async () => {},
-      locator: () => locator,
-      setViewportSize: async (viewport) => { width = viewport.width; },
-    }),
-    close: async () => {},
-  });
   const result = await build({
     cwd,
     clipboard: false,
@@ -243,6 +251,24 @@ test('responsive CSS profiling uses CLI Playwright outside the CLI project', asy
     await fs.readFile(result.outputs.responsiveCss, 'utf8'),
     '__CLASS__ {\n  height: 10rem;\n}\n\n@media only screen and (max-width: 320px) {\n  __CLASS__ {\n    height: 20rem;\n  }\n}\n',
   );
+  const fragment = await fs.readFile(result.outputs.html, 'utf8');
+  assert.doesNotMatch(fragment, /<main\b/i);
+  assert.match(fragment, /Example content/);
+  await generateResponsiveCss({
+    htmlPath: result.outputs.html,
+    outputPath: result.outputs.responsiveCss,
+    options: { selector: '#message', minWidth: 320, maxWidth: 324, step: 4, debug: true },
+  });
+  await assert.rejects(generateResponsiveCss({
+    htmlPath: result.outputs.html,
+    outputPath: result.outputs.responsiveCss,
+    options: { selector: '#missing', minWidth: 320, maxWidth: 324, step: 4 },
+  }), /Responsive CSS target not found: #missing/);
+  assert.deepEqual(launchOptions, [
+    { headless: true },
+    { headless: false, slowMo: 100 },
+    { headless: true },
+  ]);
 });
 
 test('responsive CSS reports the matching browser installation command', async (t) => {

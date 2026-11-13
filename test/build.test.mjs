@@ -77,6 +77,13 @@ test('parseArguments supports safelists, optimization control, and public URLs',
 test('parseArguments enables responsive CSS profiling', () => {
   const options = parseArguments(['--responsive-css']);
   assert.equal(options.responsiveCss, true);
+  for (const args of [
+    ['--responsive-css-debug'],
+    ['--responsive-css', '--responsive-css-debug'],
+    ['--responsive-css-debug', '--responsive-css'],
+  ]) {
+    assert.deepEqual(parseArguments(args).responsiveCss, { debug: true });
+  }
 });
 
 test('toProjectRelativePosixPath normalizes Windows-style paths for es-check', () => {
