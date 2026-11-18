@@ -56,6 +56,8 @@ Options:
   --host <host>             Dev server host (default: 127.0.0.1)
   --verbose                 Print bundler output
   -h, --help                Show help
+
+Configure optional development-only routes in .cns-static-content.json under dev.proxy.
 `;
 
 async function main() {

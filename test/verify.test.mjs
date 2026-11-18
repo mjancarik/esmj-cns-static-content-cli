@@ -8,12 +8,15 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { PNG } from 'pngjs';
 
 import {
   createJestConfig,
   loadVerifyConfig,
   parseVerifyArguments,
   startStaticServer,
+  testE2e,
+  testRegression,
   testSize,
   verifyDefaults,
 } from '../src/verify.mjs';
@@ -159,6 +162,62 @@ test('temporary static server serves build output and blocks directory traversal
     }).on('error', reject);
   });
   assert.equal(traversalStatus, 403);
+});
+
+test('E2E resolves the project Playwright executable from its public package manifest', async (t) => {
+  const cwd = await temporaryProject(t);
+  const packageDir = path.join(cwd, 'node_modules/playwright');
+  await fs.mkdir(packageDir, { recursive: true });
+  await fs.writeFile(path.join(packageDir, 'package.json'), JSON.stringify({
+    name: 'playwright', exports: { './package.json': './package.json' }, bin: { playwright: './cli.js' },
+  }));
+  await fs.writeFile(path.join(packageDir, 'cli.js'),
+    'require("node:fs").writeFileSync("playwright-args.json", JSON.stringify(process.argv.slice(2)));\n');
+  const output = path.join(cwd, 'dist/staticContent.html');
+  await fs.mkdir(path.dirname(output));
+  await fs.writeFile(output, '<main>test</main>');
+  const exitCode = await testE2e({
+    cwd,
+    config: { e2e: { testDir: 'e2e', testMatch: '**/*.spec.js' } },
+    builtResult: { outputs: { html: output } },
+  });
+  assert.equal(exitCode, 0);
+  const args = JSON.parse(await fs.readFile(path.join(cwd, 'playwright-args.json'), 'utf8'));
+  assert.equal(args[0], 'test');
+  assert.equal(args[1], '--config');
+});
+
+test('regression supports a project CommonJS Playwright default export', async (t) => {
+  const cwd = await temporaryProject(t);
+  const packageDir = path.join(cwd, 'node_modules/playwright');
+  await fs.mkdir(packageDir, { recursive: true });
+  await fs.writeFile(path.join(packageDir, 'package.json'), JSON.stringify({
+    name: 'playwright', main: './index.cjs', exports: { '.': './index.cjs' },
+  }));
+  const png = new PNG({ width: 1, height: 1 });
+  const image = PNG.sync.write(png).toString('base64');
+  await fs.writeFile(path.join(packageDir, 'index.cjs'), `
+    const makeApi = () => ({ chromium: { launch: async () => ({
+      newPage: async () => ({
+        goto: async () => {},
+        screenshot: async () => Buffer.from(${JSON.stringify(image)}, "base64"),
+        close: async () => {},
+      }),
+      close: async () => {},
+    }) } });
+    module.exports = makeApi();
+  `);
+  await fs.mkdir(path.join(cwd, 'src'));
+  await fs.writeFile(path.join(cwd, 'src/index.html'), '<html><body><main>test</main></body></html>');
+  await fs.mkdir(path.join(cwd, 'dist'));
+  const output = path.join(cwd, 'dist/staticContent.html');
+  await fs.writeFile(output, '<main>test</main>');
+  const result = await testRegression({
+    cwd,
+    config: { build: { entry: 'src/index.html' }, regression: { maxDiffPixelRatio: 0.001 } },
+    builtResult: { outputs: { html: output } },
+  });
+  assert.equal(result.diffRatio, 0);
 });
 
 test('verify defaults are exposed for central policy inspection', () => {

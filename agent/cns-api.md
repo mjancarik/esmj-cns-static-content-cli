@@ -42,6 +42,8 @@ The Seznam Zprávy and Sport specifications also expose `/v1/media/images`, `/v1
 
 Do not assume site schemas are identical: for example, the inspected Sport article schema includes `scoreTitle` and `game`, which were absent from the inspected Seznam Zprávy article schema. Verify fields, identifier types, embedded relations, and error responses on the selected site. `_id` and `uid` are different identifiers; do not interchange them without checking the operation's contract.
 
+Final numeric URL suffixes are not a universal CMS contract: validate the hostname, resource path, and suffix rule for the concrete site and entity. Inspect collection relation fields before designing a request chain; a verified direct relation can eliminate intermediate requests. For example, a Sport widget reported that its article UID equals `EsportsGame.onlineUid`, allowing requests for `/v1/esports/games` filtered by `onlineUid` and `/v1/documents/posts` filtered by `storyUid` in parallel. Verify this relation and its filters for the actual integration; do not generalize it to other sites.
+
 ## Query parameters
 
 Construct URLs with `URL` and `URLSearchParams`. Serialize filters with `JSON.stringify`; do not concatenate unescaped JSON or use JavaScript single-quoted object syntax as JSON.
@@ -70,6 +72,7 @@ Construct URLs with `URL` and `URLSearchParams`. Serialize filters with `JSON.st
 - Omitted fields are absent, not necessarily `null`. Handle both absent and nullable fields when rendering.
 - `WEB_PROTECTED_FIELDS` must not be returned even if explicitly projected. A property listed in a broad generated schema does not guarantee that the web API exposes it.
 - Embedding resolves references before projection. A projection only on an embedded field may leave other top-level fields intact; the operations guide explicitly shows this for `sections.name`. Verify the response rather than assuming this limits the entire payload.
+- Even with OpenAPI, check actual live responses for the selected projections and filters.
 
 ### Pagination and responses
 
@@ -77,6 +80,8 @@ Construct URLs with `URL` and `URLSearchParams`. Serialize filters with `JSON.st
 - Metadata includes `count`, `limit`, `offset`, `nextItems`, and `previousItems`. Do not treat `_items.length` as the total count.
 - Use a small explicit limit, bounded pagination, and a stable ordering. Advance by the effective page size, stop when `nextItems` is false or the returned list is empty, and guard against non-advancing offsets. Do not load an entire archive for a small widget.
 - The general operations guide mentions a default maximum of 1000 unless overridden; current OpenAPI describes a resource-specific `MAX_LIMIT`. Do not hardcode 1000 as universally supported.
+- If the product forbids pagination, test the first-page rule including `nextItems: true`, and do not imply that partial counts are complete totals.
+- For statistics derived from event posts, define which event types count, whether posts or individual `details` entries count, authoritative team/opponent attribution, and handling of unattributed events and incomplete pages.
 
 ## Example request construction
 
@@ -97,8 +102,11 @@ For filtering, add `url.searchParams.set('filter', JSON.stringify(filter))` with
 ## Implementation and verification
 
 - Prefer local data if freshness does not require runtime requests. Request only the fields and records the feature needs.
+- For API media images and video captions, verify the response shape and hostname. Follow [CMS and Seznam CDN images](images.md) for trim selection and URLs on `*.sdn.cz`; do not apply its CDN rules to other hosts.
 - Use read-only, documented content operations for research. Do not invoke write, voting, subscription, preview-token, or account operations just to test connectivity; even GET is not proof that an endpoint has no side effects.
 - Verify CORS in the actual preview/CMS origin. Successful server-side fetches do not prove browser access. Do not use `mode: 'no-cors'` as a workaround for unreadable responses.
+- A Sport widget reported a successful `Access-Control-Allow-Origin` check for `https://www.sport.cz`; this does not establish the browser or CMS iframe origin for another integration. Verify those separately.
+- For localhost CORS, inspect the installed CLI's help and verified `dev.proxy` configuration. Use the opt-in CLI proxy if supported; otherwise report preview as blocked and verify production-origin CORS separately. Do not add package-level proxy servers, use `no-cors`, relax CORS indiscriminately, or introduce production fallbacks as substitutes.
 - Check HTTP status before parsing success data; handle network failure, malformed responses, missing fields, and empty results. The inspected article operations document 400, 404, and 422 responses. Do not retry invalid queries indefinitely.
 - Use the native `fetch` API unless the consumer project already has a suitable shared request helper. Check `response.ok` before parsing success data and handle HTTP errors explicitly; do not assume a project-local helper has correct error handling without inspecting it.
 - Use bounded timeouts/cancellation compatible with the project's browser targets, plus loading, empty, and error UI states. Render text safely; do not insert API-provided HTML without an approved rendering/sanitization contract.

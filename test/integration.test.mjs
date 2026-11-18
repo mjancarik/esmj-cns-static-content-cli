@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -211,6 +212,87 @@ for (const scenario of ['default', 'project override', 'custom parcelrc']) {
   });
 }
 
+for (const override of [false, true]) {
+  test(`project-root aliases use ${override ? 'project overrides' : 'CLI defaults'}`, async (t) => {
+    const cwd = await project(t, 'assets');
+    const manifestPath = path.join(cwd, 'package.json');
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+    if (override) manifest.alias = { '@/*': './other/$1', '@merkur/*': './other/merkur.js' };
+    const original = JSON.stringify(manifest);
+    await fs.writeFile(manifestPath, original);
+    await fs.mkdir(path.join(cwd, 'share'), { recursive: true });
+    await fs.mkdir(path.join(cwd, 'other'), { recursive: true });
+    await fs.mkdir(path.join(cwd, 'node_modules/@merkur/core/lib'), { recursive: true });
+    await fs.writeFile(path.join(cwd, 'share/value.js'), 'export default "share";\n');
+    await fs.writeFile(path.join(cwd, 'other/value.js'), 'export default "override";\n');
+    await fs.writeFile(path.join(cwd, 'other/merkur.js'), 'export default "custom";\n');
+    await fs.writeFile(path.join(cwd, 'node_modules/@merkur/core/package.json'), JSON.stringify({ name: '@merkur/core' }));
+    await fs.writeFile(path.join(cwd, 'node_modules/@merkur/core/lib/index.es9.mjs'), 'export default "merkur";\n');
+    await fs.appendFile(path.join(cwd, 'src/index.js'),
+      '\nimport value from "@/value.js"; import merkur from "@merkur/core"; window.aliasResults = [value, merkur];\n');
+    const result = await build({ cwd, clipboard: false });
+    const { dom, js } = await artifacts(result);
+    t.after(() => dom.window.close());
+    dom.window.eval(js);
+    assert.deepEqual(Array.from(dom.window.aliasResults), override ? ['override', 'custom'] : ['share', 'merkur']);
+    assert.equal(await fs.readFile(manifestPath, 'utf8'), original);
+  });
+}
+
+test('workspace aliases use the monorepo root and respect package-level overrides', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cns-alias-workspace-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const cwd = path.join(root, 'packages/example');
+  await fs.mkdir(path.dirname(cwd), { recursive: true });
+  await fs.cp(path.join(fixtures, 'assets'), cwd, { recursive: true });
+  const encoded = await fs.readFile(path.join(cwd, 'src/photo.jpg.base64'), 'utf8');
+  await fs.writeFile(path.join(cwd, 'src/photo.jpg'), Buffer.from(encoded, 'base64'));
+  await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'workspace-root', private: true }));
+  await fs.writeFile(path.join(root, 'package-lock.json'), JSON.stringify({ name: 'workspace-root', lockfileVersion: 3 }));
+  await fs.mkdir(path.join(root, 'share'), { recursive: true });
+  await fs.writeFile(path.join(root, 'share/value.js'), 'export default "root";\n');
+  await fs.mkdir(path.join(root, 'node_modules/@merkur/core/lib'), { recursive: true });
+  await fs.writeFile(path.join(root, 'node_modules/@merkur/core/package.json'), JSON.stringify({ name: '@merkur/core' }));
+  await fs.writeFile(path.join(root, 'node_modules/@merkur/core/lib/index.es9.mjs'), 'export default "root-merkur";\n');
+  await fs.mkdir(path.join(cwd, 'custom'));
+  await fs.writeFile(path.join(cwd, 'custom/merkur.js'), 'export default "package-override";\n');
+  const packagePath = path.join(cwd, 'package.json');
+  const manifest = JSON.parse(await fs.readFile(packagePath, 'utf8'));
+  manifest.alias = { '@merkur/*': './custom/merkur.js' };
+  const original = JSON.stringify(manifest);
+  await fs.writeFile(packagePath, original);
+  await fs.appendFile(path.join(cwd, 'src/index.js'),
+    '\nimport value from "@/value.js"; import merkur from "@merkur/core"; window.aliasResults = [value, merkur];\n');
+  const result = await build({ cwd, clipboard: false });
+  const { dom, js } = await artifacts(result);
+  t.after(() => dom.window.close());
+  dom.window.eval(js);
+  assert.deepEqual(Array.from(dom.window.aliasResults), ['root', 'package-override']);
+  assert.equal(await fs.readFile(packagePath, 'utf8'), original);
+});
+
+for (const override of [false, true]) {
+  test(`CSS custom media uses ${override ? 'project override' : 'CLI default'}`, async (t) => {
+    const cwd = await project(t, 'assets');
+    const manifestPath = path.join(cwd, 'package.json');
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+    if (override) manifest['@parcel/transformer-css'] = { drafts: { customMedia: false } };
+    const original = JSON.stringify(manifest);
+    await fs.writeFile(manifestPath, original);
+    await fs.appendFile(path.join(cwd, 'src/index.css'),
+      '\n@custom-media --narrow (max-width: 600px);\n@media (--narrow) { .headline { color: red; } }\n.headline { & span { color: blue; } }\n');
+    const result = await build({ cwd, clipboard: false, purge: false });
+    const css = await fs.readFile(result.outputs.css, 'utf8');
+    if (override) assert.match(css, /--narrow/);
+    else {
+      assert.doesNotMatch(css, /--narrow/);
+      assert.match(css, /max-width:\s*600px/);
+    }
+    assert.match(css, /headline\s+span/);
+    assert.equal(await fs.readFile(manifestPath, 'utf8'), original);
+  });
+}
+
 test('responsive CSS profiling uses CLI Playwright outside the CLI project', async (t) => {
   const cwd = await project(t, 'assets');
   const projectPlaywright = path.join(cwd, 'node_modules/playwright');
@@ -285,6 +367,88 @@ test('responsive CSS reports the matching browser installation command', async (
     assert.match(error.message, /npx --yes playwright@[\d.]+ install chromium/);
     return true;
   });
+});
+
+test('dev proxy serves a browser request and preserves Parcel HMR', async (t) => {
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (error) {
+    if (!error.message.includes("Executable doesn't exist")) throw error;
+    t.skip('Playwright Chromium is not installed');
+    return;
+  }
+  t.after(() => browser.close());
+  const cwd = await project(t, 'assets');
+  const api = http.createServer((request, response) => {
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ url: request.url }));
+  });
+  await new Promise((resolve) => api.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => api.close(resolve)));
+  const apiPort = api.address().port;
+  await fs.writeFile(path.join(cwd, '.cns-static-content.json'), JSON.stringify({
+    dev: { proxy: { '/__proxy/api': `http://127.0.0.1:${apiPort}/base` } },
+  }));
+  await fs.appendFile(path.join(cwd, 'src/index.js'), `
+    const apiBase = process.env.NODE_ENV === 'production' ? 'https://live.example' : '/__proxy/api';
+    fetch(apiBase + '/items?filter=hello%20world').then((r) => r.json()).then((value) => {
+      document.querySelector('#message').textContent = value.url;
+    });
+  `);
+  const result = await build({ cwd, clipboard: false });
+  const productionJs = await fs.readFile(result.outputs.js, 'utf8');
+  for (const artifact of ['html', 'css', 'js']) {
+    const contents = await fs.readFile(result.outputs[artifact], 'utf8');
+    assert.doesNotMatch(contents, new RegExp(`127\\.0\\.0\\.1:${apiPort}`));
+    assert.doesNotMatch(contents, /__proxy\/api/);
+  }
+  assert.match(productionJs, /live\.example/);
+
+  const reservation = net.createServer();
+  await new Promise((resolve) => reservation.listen(0, '127.0.0.1', resolve));
+  const port = reservation.address().port;
+  await new Promise((resolve) => reservation.close(resolve));
+  const child = spawn(process.execPath, [parcelServe, './src/index.html', 'dist', String(port), '127.0.0.1', '/', 'false'], {
+    cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let logs = '';
+  child.stdout.on('data', (chunk) => { logs += chunk; });
+  child.stderr.on('data', (chunk) => { logs += chunk; });
+  t.after(async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    await new Promise((resolve) => {
+      child.once('close', resolve);
+      child.kill('SIGTERM');
+    });
+  });
+  const url = `http://127.0.0.1:${port}/`;
+  let ready = false;
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    if (child.exitCode !== null) throw new Error(`Dev server exited: ${logs}`);
+    try {
+      if ((await fetch(url)).ok) {
+        ready = true;
+        break;
+      }
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.ok(ready, `Dev server did not start: ${logs}`);
+  assert.match(logs, /Dev proxy enabled: \/__proxy\/api/);
+  const page = await browser.newPage();
+  const socketOpened = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Parcel HMR websocket did not open')), 10000);
+    page.on('websocket', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+  await page.goto(url);
+  await page.waitForFunction(() => document.querySelector('#message')?.textContent === '/base/items?filter=hello%20world');
+  await socketOpened;
+  await page.close();
 });
 
 test('PurgeCSS API safelists have the same exact-selector behavior as its CLI', async (t) => {

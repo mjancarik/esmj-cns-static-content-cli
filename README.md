@@ -97,6 +97,49 @@ the CLI, either add the option to that script:
 Or leave the script as-is and run `npm run dev -- --open`. In both cases, Parcel
 opens the current project's dev URL in the default browser.
 
+### Development API proxy
+
+The proxy is disabled unless routes are configured in the project directory's
+`.cns-static-content.json`:
+
+```json
+{
+  "dev": {
+    "proxy": {
+      "/__proxy/api-web": "https://api-web.sport.cz"
+    }
+  }
+}
+```
+
+Run the CLI with `--dev` and use the local prefix in development:
+
+```js
+const apiBase = process.env.NODE_ENV === 'production'
+  ? 'https://api-web.sport.cz'
+  : '/__proxy/api-web';
+fetch(`${apiBase}/v1/esports/games`);
+```
+
+Parcel replaces `process.env.NODE_ENV` for its development and production builds.
+Production continues to use the live API and must satisfy its own CORS and CMS
+requirements. Proxy target configuration is not inserted into build output.
+Do not put credentials in the configuration, client code, or URLs.
+
+Each explicit HTTP(S) target is the allowlist for its route. Prefixes must start
+with `/__proxy/`, consist of letters, digits, `_`, `-` and path separators,
+and must not overlap. The prefix is replaced by the target's base path; request
+paths and query strings are preserved. Targets cannot include credentials,
+queries or fragments. Ambiguous encoded path separators or traversal are rejected.
+Only GET and HEAD are supported; cookies, authorization and WebSockets are not
+forwarded to API targets. API routes require a local (`localhost`, `127.0.0.1`,
+or `[::1]`) same-origin request from a loopback socket, even with `--host
+0.0.0.0`. Redirects within the configured target stay on the proxy route;
+redirects to other origins or outside the target's base path return 502. Other
+routes and HMR continue to reach Parcel. Upstream failures return 502, or 504
+after a 10-second timeout. Startup prints route prefixes; failure logs omit
+query values.
+
 ## What it produces
 
 The build writes three files into the target output directory:
@@ -331,6 +374,15 @@ ES2018 validation of production build output remains separate and unchanged.
 ## Notes
 
 - The CLI owns the browser targets used during the Parcel build, so the consuming app does not need a project-level `browserslist` configuration for this tool.
+- Production builds bundle dependencies by default. The CLI's Parcel defaults map
+  `@/*` to `share/*` and `@merkur/*` to
+  `node_modules/@merkur/*/lib/index.es9.mjs` relative to Parcel's project root
+  (typically the monorepo root). Project `package.json` aliases override these
+  defaults; dependencies must still be installed.
+- CSS nesting is supported by Parcel. CSS custom media is enabled by default;
+  set `@parcel/transformer-css.drafts.customMedia` to `false` in the project
+  `package.json` to override it. A custom `.parcelrc` controls its own
+  transformers and resolvers instead of the CLI defaults.
 - Exported HTML and CSS are intentionally self-contained: local images and other media are inlined as `data:` URLs so the final static content keeps working outside its original `dist` folder.
 - JavaScript is validated against ES2018 with `es-check` before the final export is accepted.
 - Remote scripts are not embedded into the generated static JS; only the local Parcel output and inline built scripts are exported.

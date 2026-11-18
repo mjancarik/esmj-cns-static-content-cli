@@ -1,0 +1,12 @@
+{
+  "name": "parcel-transformer-cns-css",
+  "version": "1.0.0",
+  "main": "index.cjs",
+  "engines": {
+    "parcel": "^2.16.4"
+  },
+  "peerDependencies": {
+    "@parcel/plugin": "^2.16.4",
+    "@parcel/transformer-css": "^2.16.4"
+  }
+}

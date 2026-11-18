@@ -1,6 +1,6 @@
 # Agent instructions
 
-These instructions apply to creating and maintaining static-content packages in this repository.
+This directory is the canonical shared instruction source shipped by `@esmj/cns-static-content-cli` for creating and maintaining static-content packages.
 
 ## Required instruction loading
 
@@ -18,11 +18,10 @@ Read these additional documents when the task involves the relevant area:
 
 - [Dependency selection and size measurement](dependencies.md): before choosing an external library or replacing it with a local helper.
 - [CNS API integration](cns-api.md): before implementing CNS content requests through `api-web`.
+- [CMS and Seznam CDN images](images.md): before generating or modifying image URLs; apply its CDN rules only to `*.sdn.cz`, including matching images from the CNS API.
 
-## Ownership and future CLI integration
+## Ownership and consumer instructions
 
-- The intended shared instruction owner is `@esmj/cns-static-content-cli`. Its main agent document and supporting instruction files must ship with the published CLI before this project can reference them.
-- The currently installed CLI does not ship an agent document. Until it does, use the local instruction documents above; do not assume a missing dependency document exists.
-- When the CLI publishes shared instructions, replace the shared rules here with an explicit relative link and a requirement to read them. Retain repository-specific bootstrap steps, workspace layout, templates, aliases, and current lint/test commands locally.
+- Consumer repositories should reference and read these shared documents and retain only repository-specific bootstrap steps, workspace layout, templates, aliases, and current lint/test commands locally.
 - If dependencies or instruction files are unavailable, report the limitation. Do not invent CLI or CMS behavior or edit installed dependencies to supply it.
 - Inspect the installed CLI's help for supported behavior. If instructions conflict with verified configuration or behavior, report the conflict before relying on them.

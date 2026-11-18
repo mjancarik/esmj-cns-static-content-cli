@@ -19,7 +19,8 @@
 		"vendor/"
 	],
 	"bundleDependencies": [
-		"parcel-resolver-cns-exports"
+		"parcel-resolver-cns-exports",
+		"parcel-transformer-cns-css"
 	],
 	"scripts": {
 		"lint": "biome lint .",
@@ -43,6 +44,8 @@
 		"@parcel/node-resolver-core": "^3.7.4",
 		"@parcel/plugin": "^2.16.4",
 		"@parcel/reporter-cli": "^2.16.4",
+		"@parcel/transformer-css": "^2.16.4",
+		"@parcel/transformer-postcss": "^2.16.4",
 		"@parcel/utils": "^2.16.4",
 		"clipboardy": "^3.0.0",
 		"cssbeautify": "^0.3.1",
@@ -53,6 +56,7 @@
 		"jsdom": "^19.0.0",
 		"parcel": "^2.16.4",
 		"parcel-resolver-cns-exports": "file:vendor/parcel-resolver-cns-exports",
+		"parcel-transformer-cns-css": "file:vendor/parcel-transformer-cns-css",
 		"pixelmatch": "^8.0.0",
 		"playwright": "1.65.0",
 		"pngjs": "^7.0.0",

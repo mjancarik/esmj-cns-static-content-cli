@@ -9,6 +9,8 @@ These checks apply to package creation and behavior changes. For documentation-o
 - From the repository root, run `npm run lint` and `npm test -- --runInBand`. These currently check the repository, not just the new package; distinguish pre-existing failures from regressions.
 - Keep the repository lint and test checks in addition to CLI verification unless the installed CLI's verified contract explicitly replaces them. Do not assume which checks `verify` performs or invent options for it.
 - The installed CLI provides Jest and owns its generated configuration; its implementation is shipped with the module under `node_modules/@esmj/cns-static-content-cli/src/verify.mjs`. Configure supported overrides through `.cns-static-content.json` rather than relying on a consumer-root `jest.config.js`. Tests use `__tests__` directories and names ending in `Spec.js` or `Spec.jsx`. Any template assertion is only a placeholder, not meaningful coverage.
+- ESM import/export source requires a supported Jest transformation until the CLI runner natively executes ESM. Configure overrides through `.cns-static-content.json` and declare required Babel/Jest transformer packages as direct development dependencies.
+- Playwright must be resolvable from the consumer package or a monorepo ancestor. Declare it as a direct development dependency and pin a version matching the CLI's tested version. Install Chromium separately using the matching Playwright version.
 - Test the behavior introduced or changed, including relevant failure cases. Mock CMS boundaries explicitly; passing mocked tests does not establish CMS integration success.
 - From the package directory, run `npm run build -- --no-clipboard` to validate production output without replacing the user's clipboard.
 
@@ -20,7 +22,7 @@ The production CLI bundles content, purges unused CSS, validates JavaScript as E
 - `staticContent.css`: standalone CSS.
 - `staticContent.js`: standalone JavaScript.
 
-Confirm all three artifacts exist. Do not hand-edit generated output to repair source problems.
+Ignore generated `dist/` output in version control, but confirm and inspect all three artifacts. Do not hand-edit generated output to repair source problems.
 
 Inspect output for missing content, leaked development-only markup, broken asset references, and styles removed by CSS purging, particularly dynamically applied classes. Inspect CLI help before using options such as `--entry`, `--out-dir`, repeatable `--purge-content` and `--purge-ignore`, or `--verbose`.
 
@@ -28,6 +30,8 @@ Inspect output for missing content, leaked development-only markup, broken asset
 
 - Run `npm run dev` from the package directory and check relevant mobile and desktop sizes and interactions.
 - Development preview success alone is insufficient; check production rendering in an appropriate host too.
+- Production E2E tests should inject only the CMS boundaries they need and mock API responses at the network layer. Validate live payloads and CORS separately outside those mocks.
+- Use a real `parentUrl` or data fixture when a visual regression depends on URL input; a default `/` comparison may otherwise compare two empty or invalid states.
 - Separate local checks from CMS-only checks: parent-page navigation, actual tracking delivery, and iframe resizing require the real integration environment. Development mocks cannot verify them.
 - If the required browser or CMS environment is unavailable, state which checks remain unverified and why.
 

@@ -137,6 +137,17 @@ function resolveProjectEntry(projectDir, candidates, displayName) {
   throw new Error(`${displayName} is required by this check but was not found from ${projectDir}. Install it in the project or a monorepo ancestor.`);
 }
 
+function resolveProjectPlaywrightBin(projectDir) {
+  const projectRequire = createRequire(path.join(projectDir, 'package.json'));
+  const packagePath = resolveProjectEntry(projectDir, ['playwright/package.json', '@playwright/test/package.json'], 'Playwright');
+  const manifest = projectRequire(packagePath);
+  const bin = typeof manifest.bin === 'string'
+    ? manifest.bin
+    : manifest.bin?.playwright ?? manifest.bin?.['playwright-test'];
+  if (typeof bin !== 'string' || !bin) throw new Error(`Playwright package ${packagePath} does not declare a CLI executable.`);
+  return path.resolve(path.dirname(packagePath), bin);
+}
+
 function runNodeScript(scriptPath, args, cwd) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [scriptPath, ...args], { cwd, stdio: 'inherit' });
@@ -245,7 +256,7 @@ async function withBuiltServer(cwd, verifyConfig, builtResult, callback, indexFi
 export async function testE2e({ cwd = process.cwd(), config, builtResult } = {}) {
   const projectDir = path.resolve(cwd);
   const verifyConfig = config ?? await loadVerifyConfig(projectDir);
-  const playwrightPath = resolveProjectEntry(projectDir, ['playwright/cli.js', '@playwright/test/cli.js'], 'Playwright');
+  const playwrightPath = resolveProjectPlaywrightBin(projectDir);
   return withBuiltServer(projectDir, verifyConfig, builtResult, async (url) => {
     const e2e = verifyConfig.e2e;
     const playwrightConfig = {
@@ -314,7 +325,10 @@ async function findAvailablePort() {
 
 async function loadProjectPlaywright(projectDir) {
   const entry = resolveProjectEntry(projectDir, ['playwright', '@playwright/test'], 'Playwright');
-  return import(pathToFileURL(entry).href);
+  const playwright = await import(pathToFileURL(entry).href);
+  const chromium = playwright.chromium ?? playwright.default?.chromium;
+  if (!chromium) throw new Error(`Playwright entry ${entry} does not export chromium.`);
+  return { chromium };
 }
 
 async function takeScreenshot(browser, url, regressionConfig) {

@@ -1,4 +1,7 @@
 {
   "extends": "@parcel/config-default",
-  "resolvers": ["parcel-resolver-cns-exports"]
+  "resolvers": ["parcel-resolver-cns-exports"],
+  "transformers": {
+    "*.{css,pcss}": ["@parcel/transformer-postcss", "parcel-transformer-cns-css"]
+  }
 }

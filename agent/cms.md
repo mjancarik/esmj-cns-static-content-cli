@@ -18,6 +18,8 @@
 ## Iframe sizing
 
 - Use `$resizeStaticContent` when content loads dynamically or changes size and the iframe needs to grow.
+- Call `$resizeStaticContent()` with zero arguments and preserve its CMS invocation context if required. Confirm its availability and initialization order in the real CMS; a preview mock does not establish that it exists before an inline script starts.
+- Report a missing production resize helper as an integration error rather than silently ignoring it. Avoid rethrowing from the error-state resize path.
 - Avoid reducing iframe height: this can interfere with dynamically loaded desktop sidebar ads.
 - Retain heights for individual widths to limit layout shifts (CLS).
 
@@ -32,8 +34,15 @@
   - `$parentParsedUrl`: parent-page URL helper; `$parentUrlParams`: parent-page URL parameters.
   - `scriptLoader`: external-script loader instance.
 - These descriptions do not establish full signatures or initialization order. Verify the contract before introducing new usage.
+- `$UrlParams` and the iframe query string are different contracts from parent-page URL helpers. Verify which supplies `parentUrl` in the actual integration.
+
+## Presentation and browser compatibility
+
+- Width, font, and background defaults are product decisions. `width: 100%` for iframe content, Arial when requested, and transparent backgrounds when the host supplies the color are patterns, not universal requirements.
+- ES2018 syntax validation does not establish DOM/BOM or CSS API support. Check APIs and features such as `replaceChildren`, `globalThis`, `AbortController`, and `grid-gap` against the configured browser targets.
 
 ## Known limitations
 
-- Image size parameters and CMS `__CLASS__` behavior are undocumented. If a feature depends on either, obtain the missing contract before implementing that part; do not guess.
+- For images on `*.sdn.cz`, follow [CMS and Seznam CDN images](images.md); verify the concrete API media schema and CDN behavior. Do not apply those CDN rules to other hosts.
+- CMS `__CLASS__` behavior is undocumented. If a feature depends on it, obtain the missing contract before implementing that part; do not guess.
 - `$setFullscreenMode` is no longer used. Do not introduce it for new content without an explicit requirement.
