@@ -101,6 +101,16 @@ fix the error while watch mode remains active; the browser opens after a
 successful rebuild. If the preview does not become ready within 30 seconds, the
 CLI reports the error and keeps watching.
 
+Development and production use the same output directory (`dist` by default).
+When a production build starts, it asks a CLI dev server using that directory
+to stop and waits for shutdown before clearing and rebuilding the directory.
+The dev command exits; restart it after the build if needed. If shutdown fails,
+the build reports an error instead of clearing the output. This coordination
+requires the running dev server to use a CLI version that supports it; stop
+older dev servers manually. Concurrent builds or new dev servers targeting an
+output already being built are rejected. Production builds disable Parcel's
+cache to avoid stale asset references after the output directory is cleared.
+
 ### Default browser page
 
 Set `page` in the project directory's `.cns-static-content.json` when the content
@@ -179,6 +189,9 @@ The build writes three files into the target output directory:
 - `staticContent.html` — self-contained HTML with embedded CSS and JavaScript
 - `staticContent.css` — standalone CSS
 - `staticContent.js` — standalone JavaScript
+
+The build command reports each file's gzip-compressed size in decimal kB
+(1 kB = 1,000 bytes). The HTML size includes its embedded CSS and JavaScript.
 
 When building in normal mode, the generated HTML is also copied to the clipboard by default. If clipboard access is unavailable, the files still build successfully and a warning is reported.
 

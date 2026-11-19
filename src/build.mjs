@@ -12,6 +12,7 @@ import htmlpretty from 'pretty';
 import purgecssPackage from 'purgecss';
 import { generateResponsiveCss, normalizeResponsiveOptions } from './responsive-css.mjs';
 import { loadProjectPage, normalizeProjectPage } from './project-page.mjs';
+import { acquireBuildOutput } from './output-lock.mjs';
 
 const require = createRequire(import.meta.url);
 const { PurgeCSS } = purgecssPackage;
@@ -70,7 +71,7 @@ function runNodeBin(packageName, args, options = {}) {
 }
 
 function runNodeFile(filePath, args, options = {}) {
-  const { cwd, verbose = false, env } = options;
+  const { cwd, verbose = false, env, forwardSignals = false } = options;
 
   return new Promise((resolve, reject) => {
     const child = spawn(
@@ -85,6 +86,18 @@ function runNodeFile(filePath, args, options = {}) {
 
     let stdout = '';
     let stderr = '';
+    let forwardedSignal;
+    const handlers = new Map();
+    if (forwardSignals) {
+      for (const signal of ['SIGINT', 'SIGTERM']) {
+        const handler = () => {
+          forwardedSignal = signal;
+          if (child.exitCode === null && child.signalCode === null) child.kill(signal);
+        };
+        handlers.set(signal, handler);
+        process.on(signal, handler);
+      }
+    }
 
     if (!verbose) {
       child.stdout.on('data', (chunk) => {
@@ -100,6 +113,12 @@ function runNodeFile(filePath, args, options = {}) {
     });
 
     child.on('close', (code) => {
+      for (const [signal, handler] of handlers) process.removeListener(signal, handler);
+      if (forwardedSignal) {
+        process.exitCode = forwardedSignal === 'SIGINT' ? 130 : 143;
+        resolve({ stdout, stderr });
+        return;
+      }
       if (code === 0) {
         resolve({ stdout, stderr });
         return;
@@ -659,6 +678,7 @@ export async function serve(inputOptions = {}) {
     {
       cwd: projectDir,
       verbose: true,
+      forwardSignals: true,
       env: {
         BROWSERSLIST: BROWSER_TARGETS.join(', '),
       },
@@ -696,6 +716,15 @@ export async function build(inputOptions = {}) {
     throw new Error(`Entry file not found: ${entryPath}`);
   }
 
+  const releaseOutput = await acquireBuildOutput(outDir);
+  try {
+    return await buildArtifacts({ options, projectDir, entryPath, outDir, indexHtmlPath, purgeContent, purgeIgnore, responsiveOptions, page });
+  } finally {
+    await releaseOutput();
+  }
+}
+
+async function buildArtifacts({ options, projectDir, entryPath, outDir, indexHtmlPath, purgeContent, purgeIgnore, responsiveOptions, page }) {
   await fs.rm(outDir, { recursive: true, force: true });
   await fs.mkdir(outDir, { recursive: true });
 

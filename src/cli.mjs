@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
+import { promisify } from 'node:util';
+import { gzip } from 'node:zlib';
 import { build, parseArguments, serve } from './build.mjs';
 import { lint, parseLintArguments } from './lint.mjs';
 import {
@@ -11,6 +13,8 @@ import {
   testSize,
   testUnit,
 } from './verify.mjs';
+
+const gzipAsync = promisify(gzip);
 
 const help = `Usage: esmj-cns-static-content-cli [options]
 
@@ -127,15 +131,16 @@ async function main() {
     }
 
     if (options.dev || options.watch) {
-      const server = await serve(options);
-      process.stdout.write(`Dev server running at ${server.url}\n`);
+      await serve(options);
       return;
     }
 
     const result = await build(options);
-    process.stdout.write(`Created ${result.outputs.html}\n`);
-    process.stdout.write(`Created ${result.outputs.css}\n`);
-    process.stdout.write(`Created ${result.outputs.js}\n`);
+    for (const artifact of ['html', 'css', 'js']) {
+      const output = result.outputs[artifact];
+      const compressed = await gzipAsync(await fs.readFile(output));
+      process.stdout.write(`Created ${output} (gzip: ${(compressed.length / 1000).toFixed(2)} kB)\n`);
+    }
     if (result.outputs.responsiveCss) {
       process.stdout.write(`Created ${result.outputs.responsiveCss}\n`);
       process.stdout.write(await fs.readFile(result.outputs.responsiveCss, 'utf8'));

@@ -8,12 +8,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import test from 'node:test';
+import { gzipSync } from 'node:zlib';
 
 import clipboardy from 'clipboardy';
 import { JSDOM } from 'jsdom';
 import { chromium } from 'playwright';
 import purgecssPackage from 'purgecss';
 import { build } from '../src/build.mjs';
+import { acquireBuildOutput } from '../src/output-lock.mjs';
 import { generateResponsiveCss } from '../src/responsive-css.mjs';
 
 const execute = promisify(execFile);
@@ -568,6 +570,13 @@ test('dev proxy serves a browser request and preserves Parcel HMR', async (t) =>
   await page.goto(opened.url);
   await page.waitForFunction(() => document.querySelector('#message')?.textContent === '/base/items?filter=hello%20world');
   await socketOpened;
+  const stopped = new Promise((resolve) => child.once('close', resolve));
+  const rebuilt = await build({ cwd, clipboard: false });
+  await stopped;
+  const rebuiltJs = await fs.readFile(rebuilt.outputs.js, 'utf8');
+  assert.doesNotMatch(rebuiltJs, /parcelHotUpdate|HMR_PORT|__parcel__HMR/);
+  assert.match(rebuiltJs, /live\.example/);
+  await assert.rejects(fetch(url));
   await page.close();
 });
 
@@ -634,6 +643,51 @@ test('dev preview waits for a successful build before opening and opens only onc
   }
   assert.ok((logs.match(/Built in/g) ?? []).length > completedBuilds, logs);
   assert.equal(await fs.readFile(openedPath, 'utf8'), '200\n');
+});
+
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGKILL']) test(`build handles a dev CLI parent stopped by ${signal}`, async (t) => {
+  const cwd = await project(t, 'assets');
+  const reservation = net.createServer();
+  await new Promise((resolve) => reservation.listen(0, '127.0.0.1', resolve));
+  const port = reservation.address().port;
+  await new Promise((resolve) => reservation.close(resolve));
+  const child = spawn(process.execPath, [cli, '--cwd', cwd, '--dev', '--port', String(port)], {
+    cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let logs = '';
+  child.stdout.on('data', (chunk) => { logs += chunk; });
+  child.stderr.on('data', (chunk) => { logs += chunk; });
+  t.after(async () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    const release = await acquireBuildOutput(path.join(cwd, 'dist'));
+    await release();
+  });
+  const url = `http://127.0.0.1:${port}/`;
+  let ready = false;
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Dev CLI exited: ${logs}`);
+    try {
+      if ((await fetch(url)).ok) {
+        ready = true;
+        break;
+      }
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.ok(ready, logs);
+  const exited = new Promise((resolve) => child.once('exit', resolve));
+  child.kill(signal);
+  await exited;
+  if (signal !== 'SIGKILL') {
+    assert.equal(child.exitCode, signal === 'SIGINT' ? 130 : 143);
+    await assert.rejects(fetch(url));
+  }
+  const { stdout } = await execute(process.execPath, [cli, '--cwd', cwd, '--no-clipboard'], { timeout: 120000 });
+  if (signal === 'SIGKILL') assert.match(stdout, /Stopping the dev server before building/);
+  else assert.doesNotMatch(stdout, /Stopping the dev server before building/);
+  assert.ok((await fs.stat(path.join(cwd, 'dist/staticContent.html'))).size > 0);
+  await assert.rejects(fetch(url));
 });
 
 test('PurgeCSS API safelists have the same exact-selector behavior as its CLI', async (t) => {
@@ -767,9 +821,12 @@ test('CLI builds a custom entry/output from a different working directory', asyn
     cli, '--cwd', cwd, '--entry', 'src/landing.html', '--out-dir', 'output', '--no-clipboard',
   ], { cwd: os.tmpdir(), timeout: 120000 });
   assert.equal(stderr, '');
-  assert.match(stdout, /Created .*staticContent\.html/);
   for (const extension of ['html', 'css', 'js']) {
-    assert.ok((await fs.stat(path.join(cwd, 'output', `staticContent.${extension}`))).size > 0);
+    const output = path.join(cwd, 'output', `staticContent.${extension}`);
+    const contents = await fs.readFile(output);
+    assert.ok(contents.length > 0);
+    const size = (gzipSync(contents).length / 1000).toFixed(2);
+    assert.ok(stdout.includes(`Created ${output} (gzip: ${size} kB)`));
   }
 });
 

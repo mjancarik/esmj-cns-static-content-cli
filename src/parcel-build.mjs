@@ -11,6 +11,7 @@ try {
     entries: entry,
     defaultConfig: fileURLToPath(new URL('./parcel-config.json', import.meta.url)),
     mode: 'production',
+    shouldDisableCache: true,
     shouldAutoInstall: false,
     defaultTargetOptions: {
       shouldOptimize: optimize !== 'false',

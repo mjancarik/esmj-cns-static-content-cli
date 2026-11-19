@@ -6,6 +6,7 @@ import parcel from '@parcel/core';
 import parcelUtils from '@parcel/utils';
 import { createDevProxyServer, loadDevProxyConfig } from './dev-proxy.mjs';
 import { loadProjectPage } from './project-page.mjs';
+import { acquireDevOutput } from './output-lock.mjs';
 
 const require = createRequire(import.meta.url);
 const [entry, outDir, portValue, host, publicUrl, open] = process.argv.slice(2);
@@ -36,8 +37,42 @@ async function waitForPreview(url, signal) {
 
 let subscription;
 let proxyServer;
+let releaseOutput;
+let stopRequested = false;
+let stopping;
+const proxySockets = new Set();
 const previewAbort = new AbortController();
+async function closeProxy() {
+  if (!proxyServer?.listening) return;
+  const closed = new Promise((resolve, reject) => proxyServer.close((error) => error ? reject(error) : resolve()));
+  for (const socket of proxySockets) socket.destroy();
+  await closed;
+}
+
+function stop() {
+  if (stopping) return stopping;
+  stopping = (async () => {
+    previewAbort.abort();
+    await subscription.unsubscribe();
+    await closeProxy();
+    await releaseOutput();
+    process.exit();
+  })();
+  return stopping;
+}
+
+function requestStop() {
+  stopRequested = true;
+  if (subscription) stop().catch((error) => {
+    console.error(`Unable to stop dev server: ${error.message}`);
+    process.exitCode = 1;
+  });
+}
+
+process.on('SIGINT', requestStop);
+process.on('SIGTERM', requestStop);
 try {
+  releaseOutput = await acquireDevOutput(outDir, requestStop);
   const routes = await loadDevProxyConfig(process.cwd());
   const page = await loadProjectPage(process.cwd());
   let parcelPort = port;
@@ -50,6 +85,10 @@ try {
     parcelPort = temporaryServer.address().port;
     await new Promise((resolve, reject) => temporaryServer.close((error) => error ? reject(error) : resolve()));
     proxyServer = createDevProxyServer({ routes, port, parcelPort });
+    proxyServer.on('connection', (socket) => {
+      proxySockets.add(socket);
+      socket.once('close', () => proxySockets.delete(socket));
+    });
     await new Promise((resolve, reject) => {
       proxyServer.once('error', reject);
       proxyServer.listen(port, host, resolve);
@@ -97,17 +136,11 @@ try {
         });
     }
   });
-  const stop = async () => {
-    previewAbort.abort();
-    await subscription.unsubscribe();
-    if (proxyServer) await new Promise((resolve, reject) => proxyServer.close((error) => error ? reject(error) : resolve()));
-    process.exit();
-  };
-  process.once('SIGINT', stop);
-  process.once('SIGTERM', stop);
+  if (stopRequested) await stop();
 } catch (error) {
   if (subscription) await subscription.unsubscribe();
-  if (proxyServer?.listening) await new Promise((resolve, reject) => proxyServer.close((closeError) => closeError ? reject(closeError) : resolve()));
+  await closeProxy();
+  if (releaseOutput) await releaseOutput();
   console.error(error.message);
   process.exitCode = 1;
 }
