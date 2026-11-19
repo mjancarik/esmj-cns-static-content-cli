@@ -57,7 +57,7 @@ Options:
   --verbose                 Print bundler output
   -h, --help                Show help
 
-Configure optional development-only routes in .cns-static-content.json under dev.proxy.
+Configure the default browser page and optional dev.proxy routes in .cns-static-content.json.
 `;
 
 async function main() {

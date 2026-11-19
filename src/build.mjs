@@ -11,6 +11,7 @@ import { JSDOM } from 'jsdom';
 import htmlpretty from 'pretty';
 import purgecssPackage from 'purgecss';
 import { generateResponsiveCss, normalizeResponsiveOptions } from './responsive-css.mjs';
+import { loadProjectPage, normalizeProjectPage } from './project-page.mjs';
 
 const require = createRequire(import.meta.url);
 const { PurgeCSS } = purgecssPackage;
@@ -682,6 +683,9 @@ export async function build(inputOptions = {}) {
   }
   const responsiveOptions = normalizeResponsiveOptions(options.responsiveCss);
   const projectDir = path.resolve(options.cwd);
+  const page = responsiveOptions.enabled
+    ? options.page === undefined ? await loadProjectPage(projectDir) : normalizeProjectPage(options.page)
+    : '/';
   const entryPath = resolveProjectPath(projectDir, options.entry);
   const outDir = resolveProjectPath(projectDir, options.outDir);
   const indexHtmlPath = path.join(outDir, path.basename(options.entry));
@@ -751,6 +755,7 @@ export async function build(inputOptions = {}) {
         htmlPath: staticHtmlPath,
         outputPath: path.join(outDir, '__CLASS__.css'),
         options: responsiveOptions,
+        page,
       })
     : null;
 

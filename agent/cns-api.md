@@ -68,6 +68,8 @@ Construct URLs with `URL` and `URLSearchParams`. Serialize filters with `JSON.st
 
 ### Projection and embedding cautions
 
+- Optimize API payload size with `projection`: request only the fields needed for rendering, attribution, pagination, and error handling. Verify actual response size and required fields rather than assuming a projection reduced the payload.
+- Use `embedded` for supported relations when it avoids separate requests for data the feature needs. Embed only necessary relations and combine with an appropriate projection; compare request count and payload size, since embedding can increase response size. Confirm relation support and response behavior on the selected resource.
 - The inspected OpenAPI descriptions permit exclusion with `-`, e.g. `-content`. Do not mix included and excluded fields, except for the documented `-_id` exception.
 - Omitted fields are absent, not necessarily `null`. Handle both absent and nullable fields when rendering.
 - `WEB_PROTECTED_FIELDS` must not be returned even if explicitly projected. A property listed in a broad generated schema does not guarantee that the web API exposes it.

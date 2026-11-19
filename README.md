@@ -97,6 +97,34 @@ the CLI, either add the option to that script:
 Or leave the script as-is and run `npm run dev -- --open`. In both cases, Parcel
 opens the current project's dev URL in the default browser.
 
+### Default browser page
+
+Set `page` in the project directory's `.cns-static-content.json` when the content
+requires URL parameters:
+
+```json
+{
+  "page": "/?parentUrl=https%3A%2F%2Fwww.sport.cz%2Farticle"
+}
+```
+
+The default is `/`. The value must be a local absolute path, optionally with a
+query string and fragment, not an external URL. The CLI uses it for `--dev
+--open`, responsive CSS measurement, both visual-regression screenshots, and
+the Playwright E2E `baseURL`. Each local server supplies its own origin; the
+configured query reaches the generated content. The path is not a request to
+the parent site, and production CORS still applies.
+
+E2E tests must navigate explicitly: use the Playwright `baseURL` fixture with
+`await page.goto(baseURL)` to preserve the complete configured URL, including
+its fragment. `page.goto('')` drops the fragment, and `page.goto('/')` replaces
+the path and query. Explicit Playwright `baseURL` settings override the default.
+The project configuration
+is also used by the build API when responsive CSS is enabled; `build({ page:
+'/?...', responsiveCss: true })` overrides it for that call. A verification
+`--config` file supplies `page` for verification and its shared build.
+This setting does not add a browser performance budget check.
+
 ### Development API proxy
 
 The proxy is disabled unless routes are configured in the project directory's
@@ -273,7 +301,7 @@ widths are the first sampled widths at which the rounded content height changes.
 3. `test:size` measures raw output bytes. Defaults are HTML 100/150 KiB,
    CSS 50/80 KiB, and JS 200/300 KiB (soft/hard). Exceeding soft warns;
    exceeding hard fails verification.
-4. `test:e2e` serves the generated `staticContent.html` at `/` and runs the
+4. `test:e2e` serves the generated `staticContent.html` at the configured page and runs the
    project's Playwright tests.
 5. `test:regression` serves Parcel's production page and starts a dev server,
    then compares browser screenshots. Differences above the default 0.1% pixel
@@ -285,8 +313,8 @@ run alone. `verify` shares its production build among those checks. Unit tests
 use the CLI's Jest, jsdom environment, and CSS mock dependencies; no project Jest
 installation is required. Playwright checks use the version installed by the
 project or a monorepo ancestor, and its browser must already be installed. E2E tests should be in
-`e2e/` by default and can navigate with `page.goto('/')` using Playwright's
-configured `baseURL`.
+`e2e/` by default and can navigate with `page.goto(baseURL)` using Playwright's
+`baseURL` fixture.
 
 Verification uses `.cns-static-content.json` at the project root. Every setting
 is optional; the defaults above apply. Individual checks can override their
@@ -294,6 +322,7 @@ configuration, and the file is never rewritten. For example:
 
 ```json
 {
+  "page": "/?parentUrl=https%3A%2F%2Fwww.sport.cz%2Farticle",
   "sizeLimits": {
     "html": { "soft": 102400, "hard": 153600 },
     "css": { "soft": 51200, "hard": 81920 },

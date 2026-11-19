@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { normalizeProjectPage } from './project-page.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -101,13 +102,14 @@ export function formatResponsiveCss(measurements, { roundToRem = 0.25, includeAm
   }).join('\n\n')}\n`;
 }
 
-function startStaticServer(rootDirectory, indexFile) {
+function startStaticServer(rootDirectory, indexFile, pagePath) {
   const root = path.resolve(rootDirectory);
   const server = http.createServer(async (request, response) => {
     try {
       const rawPath = request.url.split('?')[0];
       const decodedPath = decodeURIComponent(rawPath);
-      const relativePath = decodedPath === '/' ? indexFile : decodedPath.replace(/^\/+/, '');
+      const isPage = rawPath === '/' || rawPath === pagePath;
+      const relativePath = isPage ? indexFile : decodedPath.replace(/^\/+/, '');
       const target = path.resolve(root, relativePath);
       if (target !== root && !target.startsWith(`${root}${path.sep}`)) {
         response.writeHead(403).end('Forbidden');
@@ -118,7 +120,7 @@ function startStaticServer(rootDirectory, indexFile) {
       const type = extension === '.html' ? 'text/html; charset=utf-8'
         : extension === '.css' ? 'text/css; charset=utf-8'
           : extension === '.js' ? 'text/javascript; charset=utf-8' : 'application/octet-stream';
-      if (rawPath === '/') {
+      if (isPage) {
         data = Buffer.from(`<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><main data-cns-responsive-root>${data.toString('utf8')}</main></body></html>`);
       }
       response.writeHead(200, { 'content-type': type, 'content-length': data.length });
@@ -139,11 +141,12 @@ function startStaticServer(rootDirectory, indexFile) {
   });
 }
 
-export async function generateResponsiveCss({ htmlPath, outputPath, options = true }) {
+export async function generateResponsiveCss({ htmlPath, outputPath, options = true, page: projectPage = '/' }) {
   const settings = normalizeResponsiveOptions(options);
   if (!settings.enabled) return null;
+  const pageUrl = normalizeProjectPage(projectPage);
   const { chromium } = await import('playwright');
-  const server = await startStaticServer(path.dirname(htmlPath), path.basename(htmlPath));
+  const server = await startStaticServer(path.dirname(htmlPath), path.basename(htmlPath), new URL(pageUrl, 'http://localhost').pathname);
   let browser;
   try {
     try {
@@ -159,7 +162,7 @@ export async function generateResponsiveCss({ htmlPath, outputPath, options = tr
     const page = await browser.newPage({
       viewport: { width: settings.maxWidth, height: settings.viewportHeight },
     });
-    await page.goto(`${server.url}/`, { waitUntil: 'networkidle' });
+    await page.goto(`${server.url}${pageUrl}`, { waitUntil: 'networkidle' });
     await page.evaluate(() => document.fonts.ready);
     if (settings.waitForSelector) await page.locator(settings.waitForSelector).waitFor();
     if (settings.waitMs > 0) await page.waitForTimeout(settings.waitMs);

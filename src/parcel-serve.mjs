@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import parcel from '@parcel/core';
 import parcelUtils from '@parcel/utils';
 import { createDevProxyServer, loadDevProxyConfig } from './dev-proxy.mjs';
+import { loadProjectPage } from './project-page.mjs';
 
 const require = createRequire(import.meta.url);
 const [entry, outDir, portValue, host, publicUrl, open] = process.argv.slice(2);
@@ -14,6 +15,7 @@ let subscription;
 let proxyServer;
 try {
   const routes = await loadDevProxyConfig(process.cwd());
+  const page = await loadProjectPage(process.cwd());
   let parcelPort = port;
   if (routes.length) {
     const temporaryServer = net.createServer();
@@ -51,7 +53,7 @@ try {
       process.exit(1);
     }
   });
-  if (open === 'true') await parcelUtils.openInBrowser(`http://${host}:${port}`);
+  if (open === 'true') await parcelUtils.openInBrowser(`http://${host}:${port}${page}`);
   const stop = async () => {
     await subscription.unsubscribe();
     if (proxyServer) await new Promise((resolve, reject) => proxyServer.close((error) => error ? reject(error) : resolve()));

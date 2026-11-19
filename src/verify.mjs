@@ -9,10 +9,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 import { build } from './build.mjs';
+import { normalizeProjectPage } from './project-page.mjs';
 
 const require = createRequire(import.meta.url);
 
 const DEFAULT_CONFIG = {
+  page: '/',
   build: {},
   sizeLimits: {
     html: { soft: 100 * 1024, hard: 150 * 1024 },
@@ -80,6 +82,7 @@ export async function loadVerifyConfig(cwd, configPath) {
   };
   validateSizeLimits(config.sizeLimits);
   validatePixelRatio(config.regression.maxDiffPixelRatio);
+  config.page = normalizeProjectPage(config.page);
   return config;
 }
 
@@ -100,7 +103,7 @@ function validatePixelRatio(ratio) {
 
 async function getBuiltResult(cwd, config, existingResult) {
   if (existingResult) return existingResult;
-  return build({ cwd, ...config.build, clipboard: false });
+  return build({ cwd, ...config.build, ...(config.page === undefined ? {} : { page: config.page }), clipboard: false });
 }
 
 export async function testSize({ cwd = process.cwd(), config, builtResult } = {}) {
@@ -209,15 +212,16 @@ function contentType(filePath) {
   })[extension] ?? 'application/octet-stream';
 }
 
-export async function startStaticServer(rootDirectory, { port = 0, indexFile = 'index.html' } = {}) {
+export async function startStaticServer(rootDirectory, { port = 0, indexFile = 'index.html', page = '/' } = {}) {
   const root = path.resolve(rootDirectory);
+  const pagePath = new URL(normalizeProjectPage(page), 'http://localhost').pathname;
   const server = http.createServer(async (request, response) => {
     try {
       const requestPath = request.url.startsWith('http://') || request.url.startsWith('https://')
         ? new URL(request.url).pathname
         : request.url.split('?')[0];
       const urlPath = decodeURIComponent(requestPath);
-      const relativePath = urlPath === '/' ? indexFile : urlPath.replace(/^\/+/, '');
+      const relativePath = requestPath === '/' || requestPath === pagePath ? indexFile : urlPath.replace(/^\/+/, '');
       const target = path.resolve(root, relativePath);
       if (target !== root && !target.startsWith(`${root}${path.sep}`)) {
         response.writeHead(403).end('Forbidden');
@@ -245,6 +249,7 @@ async function withBuiltServer(cwd, verifyConfig, builtResult, callback, indexFi
   const result = await getBuiltResult(cwd, verifyConfig, builtResult);
   const server = await startStaticServer(path.dirname(result.outputs.html), {
     indexFile: indexFile ?? path.basename(result.outputs.html),
+    page: verifyConfig.page,
   });
   try {
     return await callback(server.url, result);
@@ -262,8 +267,8 @@ export async function testE2e({ cwd = process.cwd(), config, builtResult } = {})
     const playwrightConfig = {
       testDir: path.resolve(projectDir, e2e.testDir),
       testMatch: e2e.testMatch,
-      use: { baseURL: `${url}/`, ...e2e.use },
       ...e2e.playwright,
+      use: { baseURL: `${url}${normalizeProjectPage(verifyConfig.page)}`, ...e2e.use, ...e2e.playwright?.use },
     };
     return withTemporaryConfig(`module.exports = ${JSON.stringify(playwrightConfig, null, 2)};\n`,
       (configPath) => runNodeScript(playwrightPath, ['test', '--config', configPath], projectDir), '.cjs');
@@ -355,8 +360,8 @@ export async function testRegression({ cwd = process.cwd(), config, builtResult 
       const browser = await chromium.launch({ headless: true });
       try {
         const [productionBuffer, developmentBuffer] = await Promise.all([
-          takeScreenshot(browser, `${productionUrl}/`, verifyConfig.regression),
-          takeScreenshot(browser, `${devServer.url}/`, verifyConfig.regression),
+          takeScreenshot(browser, `${productionUrl}${normalizeProjectPage(verifyConfig.page)}`, verifyConfig.regression),
+          takeScreenshot(browser, `${devServer.url}${normalizeProjectPage(verifyConfig.page)}`, verifyConfig.regression),
         ]);
         const production = PNG.sync.read(productionBuffer);
         const development = PNG.sync.read(developmentBuffer);

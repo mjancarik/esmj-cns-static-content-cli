@@ -303,11 +303,13 @@ test('responsive CSS profiling uses CLI Playwright outside the CLI project', asy
   let width;
   let pageDom;
   const launchOptions = [];
+  const visited = [];
   chromium.launch = async (options) => {
     launchOptions.push(options);
     return {
       newPage: async () => ({
         goto: async (url) => {
+          visited.push(url);
           const response = await fetch(url);
           assert.equal(response.status, 200);
           pageDom = new JSDOM(await response.text());
@@ -322,6 +324,9 @@ test('responsive CSS profiling uses CLI Playwright outside the CLI project', asy
       close: async () => { pageDom?.window.close(); },
     };
   };
+  await fs.writeFile(path.join(cwd, '.cns-static-content.json'), JSON.stringify({
+    page: '/preview?parentUrl=https%3A%2F%2Fwww.sport.cz%2Farticle',
+  }));
   const result = await build({
     cwd,
     clipboard: false,
@@ -329,6 +334,7 @@ test('responsive CSS profiling uses CLI Playwright outside the CLI project', asy
     responsiveCss: { minWidth: 320, maxWidth: 324, step: 4 },
   });
   assert.equal(result.outputs.responsiveCss, path.join(cwd, 'dist/__CLASS__.css'));
+  assert.equal(new URL(visited[0]).pathname + new URL(visited[0]).search, '/preview?parentUrl=https%3A%2F%2Fwww.sport.cz%2Farticle');
   assert.equal(
     await fs.readFile(result.outputs.responsiveCss, 'utf8'),
     '__CLASS__ {\n  height: 10rem;\n}\n\n@media only screen and (max-width: 320px) {\n  __CLASS__ {\n    height: 20rem;\n  }\n}\n',
@@ -351,6 +357,33 @@ test('responsive CSS profiling uses CLI Playwright outside the CLI project', asy
     { headless: false, slowMo: 100 },
     { headless: true },
   ]);
+});
+
+test('responsive CSS measures generated content using the configured page query', async (t) => {
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (error) {
+    if (!error.message.includes("Executable doesn't exist")) throw error;
+    t.skip('Playwright Chromium is not installed');
+    return;
+  }
+  await browser.close();
+  const cwd = await project(t, 'assets');
+  await fs.writeFile(path.join(cwd, '.cns-static-content.json'), JSON.stringify({
+    page: '/preview?parentUrl=https%3A%2F%2Fwww.sport.cz%2Farticle',
+  }));
+  await fs.appendFile(path.join(cwd, 'src/index.js'), `
+    const parentUrl = new URLSearchParams(location.search).get('parentUrl');
+    document.querySelector('#message').style.height =
+      parentUrl === 'https://www.sport.cz/article' ? '320px' : '80px';
+  `);
+  const result = await build({
+    cwd,
+    clipboard: false,
+    responsiveCss: { selector: '#message', minWidth: 320, maxWidth: 324, step: 4 },
+  });
+  assert.match(await fs.readFile(result.outputs.responsiveCss, 'utf8'), /height: 20rem/);
 });
 
 test('responsive CSS reports the matching browser installation command', async (t) => {
@@ -388,6 +421,7 @@ test('dev proxy serves a browser request and preserves Parcel HMR', async (t) =>
   t.after(() => new Promise((resolve) => api.close(resolve)));
   const apiPort = api.address().port;
   await fs.writeFile(path.join(cwd, '.cns-static-content.json'), JSON.stringify({
+    page: '/preview?parentUrl=https%3A%2F%2Fwww.sport.cz%2Farticle',
     dev: { proxy: { '/__proxy/api': `http://127.0.0.1:${apiPort}/base` } },
   }));
   await fs.appendFile(path.join(cwd, 'src/index.js'), `
@@ -409,7 +443,18 @@ test('dev proxy serves a browser request and preserves Parcel HMR', async (t) =>
   await new Promise((resolve) => reservation.listen(0, '127.0.0.1', resolve));
   const port = reservation.address().port;
   await new Promise((resolve) => reservation.close(resolve));
-  const child = spawn(process.execPath, [parcelServe, './src/index.html', 'dist', String(port), '127.0.0.1', '/', 'false'], {
+  const openedPath = path.join(cwd, 'opened-url.txt');
+  const preloadPath = path.join(cwd, 'open-stub.mjs');
+  await fs.writeFile(preloadPath, `
+    import { createRequire } from 'node:module';
+    import { writeFile } from 'node:fs/promises';
+    const require = createRequire(${JSON.stringify(parcelServe)});
+    const utils = require('@parcel/utils');
+    Object.defineProperty(utils, 'openInBrowser', {
+      value: (url) => writeFile(${JSON.stringify(openedPath)}, url),
+    });
+  `);
+  const child = spawn(process.execPath, ['--import', preloadPath, parcelServe, './src/index.html', 'dist', String(port), '127.0.0.1', '/', 'true'], {
     cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -437,6 +482,17 @@ test('dev proxy serves a browser request and preserves Parcel HMR', async (t) =>
   }
   assert.ok(ready, `Dev server did not start: ${logs}`);
   assert.match(logs, /Dev proxy enabled: \/__proxy\/api/);
+  let openedUrl;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      openedUrl = await fs.readFile(openedPath, 'utf8');
+      break;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  assert.equal(openedUrl, `http://127.0.0.1:${port}/preview?parentUrl=https%3A%2F%2Fwww.sport.cz%2Farticle`, logs);
   const page = await browser.newPage();
   const socketOpened = new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Parcel HMR websocket did not open')), 10000);
@@ -445,7 +501,7 @@ test('dev proxy serves a browser request and preserves Parcel HMR', async (t) =>
       resolve();
     });
   });
-  await page.goto(url);
+  await page.goto(openedUrl);
   await page.waitForFunction(() => document.querySelector('#message')?.textContent === '/base/items?filter=hello%20world');
   await socketOpened;
   await page.close();

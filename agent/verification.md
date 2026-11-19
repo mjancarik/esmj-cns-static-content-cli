@@ -31,7 +31,7 @@ Inspect output for missing content, leaked development-only markup, broken asset
 - Run `npm run dev` from the package directory and check relevant mobile and desktop sizes and interactions.
 - Development preview success alone is insufficient; check production rendering in an appropriate host too.
 - Production E2E tests should inject only the CMS boundaries they need and mock API responses at the network layer. Validate live payloads and CORS separately outside those mocks.
-- Use a real `parentUrl` or data fixture when a visual regression depends on URL input; a default `/` comparison may otherwise compare two empty or invalid states.
+- When checks depend on URL input, configure the local `page` path and query in `.cns-static-content.json`, for example `/?parentUrl=https%3A%2F%2Fwww.sport.cz%2Farticle`. Responsive CSS and visual regression use it; E2E tests can navigate with `page.goto(baseURL)` using Playwright's `baseURL` fixture. `page.goto('')` discards fragments and `page.goto('/')` discards the path and query. A default `/` comparison can otherwise compare two empty or invalid states.
 - Separate local checks from CMS-only checks: parent-page navigation, actual tracking delivery, and iframe resizing require the real integration environment. Development mocks cannot verify them.
 - If the required browser or CMS environment is unavailable, state which checks remain unverified and why.
 

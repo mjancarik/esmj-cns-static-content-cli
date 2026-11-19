@@ -9,6 +9,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { PNG } from 'pngjs';
+import { chromium } from 'playwright';
 
 import {
   createJestConfig,
@@ -25,6 +26,7 @@ import {
   normalizeResponsiveOptions,
   summarizeResponsiveMeasurements,
 } from '../src/responsive-css.mjs';
+import { loadProjectPage, normalizeProjectPage } from '../src/project-page.mjs';
 
 const execute = promisify(execFile);
 const cli = fileURLToPath(new URL('../src/cli.mjs', import.meta.url));
@@ -70,6 +72,18 @@ test('default size limits use raw bytes and project config can centrally overrid
   await assert.rejects(loadVerifyConfig(cwd, 'absent.json'), /config not found/i);
   await fs.writeFile(path.join(cwd, 'broken.json'), '{');
   await assert.rejects(loadVerifyConfig(cwd, 'broken.json'), /Invalid verify config/);
+});
+
+test('project page defaults to root and rejects external or malformed URLs', async (t) => {
+  const cwd = await temporaryProject(t);
+  assert.equal(await loadProjectPage(cwd), '/');
+  const page = '/preview?parentUrl=https%3A%2F%2Fwww.sport.cz%2Farticle#details';
+  await fs.writeFile(path.join(cwd, '.cns-static-content.json'), JSON.stringify({ page }));
+  assert.equal(await loadProjectPage(cwd), page);
+  assert.equal((await loadVerifyConfig(cwd)).page, page);
+  for (const invalid of ['https://example.com/', '//example.com/', '/\\example.com', '/bad\npath', null, 123]) {
+    assert.throws(() => normalizeProjectPage(invalid), /page must be/);
+  }
 });
 
 test('size verification warns over soft limit and fails over hard limit', async (t) => {
@@ -149,11 +163,12 @@ test('temporary static server serves build output and blocks directory traversal
   await fs.mkdir(root);
   await fs.writeFile(path.join(root, 'staticContent.html'), '<h1>Built project</h1>');
   await fs.writeFile(path.join(cwd, 'outside.txt'), 'private');
-  const server = await startStaticServer(root, { indexFile: 'staticContent.html' });
+  const server = await startStaticServer(root, { indexFile: 'staticContent.html', page: '/preview?parentUrl=test' });
   t.after(() => server.close());
   const page = await fetch(`${server.url}/`);
   assert.equal(page.status, 200);
   assert.match(await page.text(), /Built project/);
+  assert.match(await (await fetch(`${server.url}/preview?parentUrl=test`)).text(), /Built project/);
   const { port } = new URL(server.url);
   const traversalStatus = await new Promise((resolve, reject) => {
     http.get({ hostname: '127.0.0.1', port: Number(port), path: '/%2e%2e%2foutside.txt' }, (response) => {
@@ -171,20 +186,70 @@ test('E2E resolves the project Playwright executable from its public package man
   await fs.writeFile(path.join(packageDir, 'package.json'), JSON.stringify({
     name: 'playwright', exports: { './package.json': './package.json' }, bin: { playwright: './cli.js' },
   }));
-  await fs.writeFile(path.join(packageDir, 'cli.js'),
-    'require("node:fs").writeFileSync("playwright-args.json", JSON.stringify(process.argv.slice(2)));\n');
+  await fs.writeFile(path.join(packageDir, 'cli.js'), `
+    const config = require(process.argv[4]);
+    require("node:fs").writeFileSync("playwright-args.json", JSON.stringify({ args: process.argv.slice(2), use: config.use }));
+  `);
   const output = path.join(cwd, 'dist/staticContent.html');
   await fs.mkdir(path.dirname(output));
   await fs.writeFile(output, '<main>test</main>');
   const exitCode = await testE2e({
     cwd,
-    config: { e2e: { testDir: 'e2e', testMatch: '**/*.spec.js' } },
+    config: { page: '/preview?parentUrl=hello%20world', e2e: {
+      testDir: 'e2e', testMatch: '**/*.spec.js', use: { locale: 'cs-CZ', trace: 'off' },
+      playwright: { use: { trace: 'on' } },
+    } },
     builtResult: { outputs: { html: output } },
   });
   assert.equal(exitCode, 0);
-  const args = JSON.parse(await fs.readFile(path.join(cwd, 'playwright-args.json'), 'utf8'));
+  const { args, use } = JSON.parse(await fs.readFile(path.join(cwd, 'playwright-args.json'), 'utf8'));
   assert.equal(args[0], 'test');
   assert.equal(args[1], '--config');
+  assert.match(use.baseURL, /^http:\/\/127\.0\.0\.1:\d+\/preview\?parentUrl=hello%20world$/);
+  assert.equal(use.locale, 'cs-CZ');
+  assert.equal(use.trace, 'on');
+  assert.equal(await testE2e({
+    cwd,
+    config: { page: '/', e2e: { testDir: 'e2e', testMatch: '**/*.spec.js',
+      playwright: { use: { baseURL: 'https://override.example/', trace: 'on' } } } },
+    builtResult: { outputs: { html: output } },
+  }), 0);
+  const override = JSON.parse(await fs.readFile(path.join(cwd, 'playwright-args.json'), 'utf8'));
+  assert.equal(override.use.baseURL, 'https://override.example/');
+  assert.equal(override.use.trace, 'on');
+});
+
+test('E2E can navigate to the configured default page', async (t) => {
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (error) {
+    if (!error.message.includes("Executable doesn't exist")) throw error;
+    t.skip('Playwright Chromium is not installed');
+    return;
+  }
+  await browser.close();
+  const cwd = await temporaryProject(t);
+  await fs.mkdir(path.join(cwd, 'node_modules'), { recursive: true });
+  await fs.symlink(fileURLToPath(new URL('../node_modules/playwright', import.meta.url)), path.join(cwd, 'node_modules/playwright'), 'junction');
+  await fs.mkdir(path.join(cwd, 'e2e'));
+  await fs.writeFile(path.join(cwd, 'e2e/page.spec.js'), `
+    const { test, expect } = require('playwright/test');
+    test('default page', async ({ page, baseURL }) => {
+      await page.goto(baseURL);
+      await expect(page.locator('h1')).toHaveText('https://www.sport.cz/article');
+      await expect(page).toHaveURL(/#details$/);
+    });
+  `);
+  await fs.mkdir(path.join(cwd, 'dist'));
+  const output = path.join(cwd, 'dist/staticContent.html');
+  await fs.writeFile(output, '<h1></h1><script>document.querySelector("h1").textContent = new URLSearchParams(location.search).get("parentUrl");</script>');
+  assert.equal(await testE2e({
+    cwd,
+    config: { page: '/preview?parentUrl=https%3A%2F%2Fwww.sport.cz%2Farticle#details',
+      e2e: { testDir: 'e2e', testMatch: '**/*.spec.js', playwright: { use: { trace: 'on' } } } },
+    builtResult: { outputs: { html: output } },
+  }), 0);
 });
 
 test('regression supports a project CommonJS Playwright default export', async (t) => {
@@ -199,7 +264,11 @@ test('regression supports a project CommonJS Playwright default export', async (
   await fs.writeFile(path.join(packageDir, 'index.cjs'), `
     const makeApi = () => ({ chromium: { launch: async () => ({
       newPage: async () => ({
-        goto: async () => {},
+        goto: async (url) => {
+          const response = await fetch(url);
+          if (!response.ok) throw new Error("Page not available: " + url);
+          require("node:fs").appendFileSync(${JSON.stringify(path.join(cwd, 'visited.txt'))}, url + "\\n");
+        },
         screenshot: async () => Buffer.from(${JSON.stringify(image)}, "base64"),
         close: async () => {},
       }),
@@ -214,10 +283,13 @@ test('regression supports a project CommonJS Playwright default export', async (
   await fs.writeFile(output, '<main>test</main>');
   const result = await testRegression({
     cwd,
-    config: { build: { entry: 'src/index.html' }, regression: { maxDiffPixelRatio: 0.001 } },
+    config: { page: '/preview?parentUrl=hello%20world', build: { entry: 'src/index.html' }, regression: { maxDiffPixelRatio: 0.001 } },
     builtResult: { outputs: { html: output } },
   });
   assert.equal(result.diffRatio, 0);
+  const visited = (await fs.readFile(path.join(cwd, 'visited.txt'), 'utf8')).trim().split('\n');
+  assert.equal(visited.length, 2);
+  for (const url of visited) assert.equal(new URL(url).pathname + new URL(url).search, '/preview?parentUrl=hello%20world');
 });
 
 test('verify defaults are exposed for central policy inspection', () => {
