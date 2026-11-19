@@ -17,9 +17,9 @@ const DEFAULT_CONFIG = {
   page: '/',
   build: {},
   sizeLimits: {
-    html: { soft: 100 * 1024, hard: 150 * 1024 },
-    css: { soft: 50 * 1024, hard: 80 * 1024 },
-    js: { soft: 200 * 1024, hard: 300 * 1024 },
+    html: { soft: 50 * 1024, hard: 100 * 1024 },
+    css: { soft: 40 * 1024, hard: 80 * 1024 },
+    js: { soft: 50 * 1024, hard: 100 * 1024 },
   },
   unit: {},
   e2e: { testDir: 'e2e', testMatch: '**/*.spec.{js,jsx,ts,tsx}' },
