@@ -293,7 +293,8 @@ async function waitForServer(url, child, timeoutMs = 30000) {
 
 async function startParcelServer(projectDir, entry, port) {
   const parcelPath = fileURLToPath(new URL('./parcel-serve.mjs', import.meta.url));
-  const child = spawn(process.execPath, [parcelPath, `./${entry}`, 'dist', String(port), '127.0.0.1', '/', 'false'], {
+  const devOutDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cns-regression-dev-'));
+  const child = spawn(process.execPath, [parcelPath, `./${entry}`, devOutDir, String(port), '127.0.0.1', '/', 'false'], {
     cwd: projectDir,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env },
@@ -302,19 +303,27 @@ async function startParcelServer(projectDir, entry, port) {
   child.stdout.on('data', (chunk) => { logs += chunk; });
   child.stderr.on('data', (chunk) => { logs += chunk; });
   const url = `http://127.0.0.1:${port}`;
+  const stop = async () => {
+    if (child.exitCode === null && child.signalCode === null) {
+      await new Promise((resolve) => {
+        const timeout = setTimeout(() => child.kill('SIGKILL'), 3000);
+        timeout.unref();
+        child.once('close', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+        child.kill('SIGTERM');
+      });
+    }
+    await fs.rm(devOutDir, { recursive: true, force: true });
+  };
   try {
     await waitForServer(url, child);
   } catch (error) {
-    child.kill('SIGTERM');
+    await stop();
     throw new Error(`${error.message}\n${logs.trim()}`);
   }
-  return { url, stop: () => new Promise((resolve) => {
-    if (child.exitCode !== null || child.signalCode !== null) return resolve();
-    child.once('close', resolve);
-    child.kill('SIGTERM');
-    const timeout = setTimeout(() => child.kill('SIGKILL'), 3000);
-    timeout.unref();
-  }) };
+  return { url, stop };
 }
 
 async function findAvailablePort() {
@@ -352,7 +361,7 @@ export async function testRegression({ cwd = process.cwd(), config, builtResult 
   const projectDir = path.resolve(cwd);
   const verifyConfig = config ?? await loadVerifyConfig(projectDir);
   validatePixelRatio(verifyConfig.regression.maxDiffPixelRatio);
-  return withBuiltServer(projectDir, verifyConfig, builtResult, async (productionUrl, result) => {
+  return withBuiltServer(projectDir, verifyConfig, builtResult, async (productionUrl) => {
     const devPort = verifyConfig.regression.port || await findAvailablePort();
     const devServer = await startParcelServer(projectDir, verifyConfig.build.entry ?? 'src/index.html', devPort);
     try {
@@ -363,24 +372,40 @@ export async function testRegression({ cwd = process.cwd(), config, builtResult 
           takeScreenshot(browser, `${productionUrl}${normalizeProjectPage(verifyConfig.page)}`, verifyConfig.regression),
           takeScreenshot(browser, `${devServer.url}${normalizeProjectPage(verifyConfig.page)}`, verifyConfig.regression),
         ]);
+        const resultsDir = path.join(projectDir, 'test-results');
+        await fs.mkdir(resultsDir, { recursive: true });
+        const directory = await fs.mkdtemp(path.join(resultsDir, 'visual-regression-'));
+        const artifacts = {
+          directory,
+          production: path.join(directory, 'production.png'),
+          development: path.join(directory, 'development.png'),
+        };
+        await Promise.all([
+          fs.writeFile(artifacts.production, productionBuffer),
+          fs.writeFile(artifacts.development, developmentBuffer),
+        ]);
         const production = PNG.sync.read(productionBuffer);
         const development = PNG.sync.read(developmentBuffer);
         if (production.width !== development.width || production.height !== development.height) {
           return {
-            warnings: [`Regression screenshots have different dimensions (production ${production.width}x${production.height}, dev ${development.width}x${development.height}); manually review ${result.outputs.html}.`],
+            warnings: [`Regression screenshots have different dimensions (production ${production.width}x${production.height}, dev ${development.width}x${development.height}); compare screenshots in ${directory}.`],
             diffRatio: 1,
+            artifacts,
           };
         }
-        const diff = pixelmatch(production.data, development.data, null, production.width, production.height, {
+        const diffImage = new PNG({ width: production.width, height: production.height });
+        const diff = pixelmatch(production.data, development.data, diffImage.data, production.width, production.height, {
           threshold: verifyConfig.regression.pixelThreshold ?? 0.1,
           includeAA: false,
         });
+        artifacts.diff = path.join(directory, 'diff.png');
+        await fs.writeFile(artifacts.diff, PNG.sync.write(diffImage));
         const pixelCount = production.width * production.height;
         const diffRatio = diff / pixelCount;
         const warnings = diffRatio > verifyConfig.regression.maxDiffPixelRatio
-          ? [`Production/dev visual difference: ${diff} of ${pixelCount} pixels (${(diffRatio * 100).toFixed(3)}%), over allowed ${(verifyConfig.regression.maxDiffPixelRatio * 100).toFixed(3)}%. Manually review the page.`]
+          ? [`Production/dev visual difference: ${diff} of ${pixelCount} pixels (${(diffRatio * 100).toFixed(3)}%), over allowed ${(verifyConfig.regression.maxDiffPixelRatio * 100).toFixed(3)}%. Compare screenshots in ${directory}.`]
           : [];
-        return { diff, diffRatio, warnings };
+        return { diff, diffRatio, warnings, artifacts };
       } finally {
         await browser.close();
       }

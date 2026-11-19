@@ -76,6 +76,7 @@ async function main() {
           const failed = check.error || check.exitCode > 0 || check.failures?.length;
           const status = check.skipped ? `SKIPPED (${check.skipped})` : failed ? 'FAILED' : check.warnings?.length ? 'WARNING' : 'passed';
           process.stdout.write(`${check.name}: ${status}${check.error ? ` (${check.error})` : ''}\n`);
+          if (check.artifacts) process.stdout.write(`Regression screenshots: ${check.artifacts.directory}\n`);
           for (const warning of check.warnings ?? []) process.stderr.write(`Warning: ${warning}\n`);
           for (const failure of check.failures ?? []) process.stderr.write(`Error: ${failure}\n`);
         }
@@ -97,6 +98,7 @@ async function main() {
         process.exitCode = await testE2e({ cwd: verifyOptions.cwd, config });
       } else {
         const result = await testRegression({ cwd: verifyOptions.cwd, config });
+        process.stdout.write(`Regression screenshots: ${result.artifacts.directory}\n`);
         for (const warning of result.warnings) process.stderr.write(`Warning: ${warning}\n`);
         if (result.warnings.length === 0) process.stdout.write('Production/dev screenshots are within tolerance.\n');
       }

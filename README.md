@@ -95,7 +95,11 @@ the CLI, either add the option to that script:
 ```
 
 Or leave the script as-is and run `npm run dev -- --open`. In both cases, Parcel
-opens the current project's dev URL in the default browser.
+opens the current project's dev URL in the default browser after the first
+successful build and a successful server response. If the initial build fails,
+fix the error while watch mode remains active; the browser opens after a
+successful rebuild. If the preview does not become ready within 30 seconds, the
+CLI reports the error and keeps watching.
 
 ### Default browser page
 
@@ -306,6 +310,14 @@ widths are the first sampled widths at which the rounded content height changes.
 5. `test:regression` serves Parcel's production page and starts a dev server,
    then compares browser screenshots. Differences above the default 0.1% pixel
    ratio warn for manual review and do not fail verification.
+
+Every successful regression comparison saves `production.png` and
+`development.png` in a new `test-results/visual-regression-*` directory under
+the project, and prints its path. It also saves `diff.png` when screenshot
+dimensions match. Different dimensions produce a warning and no diff image;
+compare the saved screenshots directly. Previous runs are retained, so remove
+old results when no longer needed and ignore `test-results/` in version control.
+The JavaScript API returns these paths in `artifacts`.
 
 The checks are also available individually as `test:unit`, `test:size`,
 `test:e2e`, and `test:regression`. Size, E2E, and regression commands build when

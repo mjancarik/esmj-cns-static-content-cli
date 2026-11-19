@@ -402,6 +402,28 @@ test('responsive CSS reports the matching browser installation command', async (
   });
 });
 
+test('regression CLI prints the directory containing browser images', async (t) => {
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (error) {
+    if (!error.message.includes("Executable doesn't exist")) throw error;
+    t.skip('Playwright Chromium is not installed');
+    return;
+  }
+  await browser.close();
+  const cwd = await project(t, 'assets');
+  await fs.mkdir(path.join(cwd, 'node_modules'), { recursive: true });
+  await fs.symlink(path.join(repository, 'node_modules/playwright'), path.join(cwd, 'node_modules/playwright'), 'junction');
+  const { stdout } = await execute(process.execPath, [cli, 'test:regression', '--cwd', cwd], { timeout: 120000 });
+  const match = stdout.match(/^Regression screenshots: (.+)$/m);
+  assert.ok(match, stdout);
+  assert.equal(path.dirname(match[1]), path.join(cwd, 'test-results'));
+  for (const name of ['production.png', 'development.png']) {
+    assert.ok((await fs.stat(path.join(match[1], name))).size > 0);
+  }
+});
+
 test('dev proxy serves a browser request and preserves Parcel HMR', async (t) => {
   let browser;
   try {
@@ -444,14 +466,39 @@ test('dev proxy serves a browser request and preserves Parcel HMR', async (t) =>
   const port = reservation.address().port;
   await new Promise((resolve) => reservation.close(resolve));
   const openedPath = path.join(cwd, 'opened-url.txt');
+  const readyPath = path.join(cwd, 'allow-preview.txt');
   const preloadPath = path.join(cwd, 'open-stub.mjs');
   await fs.writeFile(preloadPath, `
     import { createRequire } from 'node:module';
-    import { writeFile } from 'node:fs/promises';
+    import { access, writeFile } from 'node:fs/promises';
     const require = createRequire(${JSON.stringify(parcelServe)});
+    const Parcel = require('@parcel/core').Parcel;
+    const watch = Parcel.prototype.watch;
+    Parcel.prototype.watch = function(callback) {
+      const subscription = watch.call(this, callback);
+      callback(null, { type: 'buildSuccess' });
+      return subscription;
+    };
+    const fetchPreview = globalThis.fetch;
+    globalThis.fetch = async (url, options) => {
+      try {
+        await access(${JSON.stringify(readyPath)});
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        return new Response('Starting', { status: 503 });
+      }
+      return fetchPreview(url, options);
+    };
     const utils = require('@parcel/utils');
     Object.defineProperty(utils, 'openInBrowser', {
-      value: (url) => writeFile(${JSON.stringify(openedPath)}, url),
+      value: async (url) => {
+        try {
+          const response = await fetch(url);
+          await writeFile(${JSON.stringify(openedPath)}, JSON.stringify({ url, status: response.status, body: await response.text() }));
+        } catch (error) {
+          await writeFile(${JSON.stringify(openedPath)}, JSON.stringify({ url, error: error.message }));
+        }
+      },
     });
   `);
   const child = spawn(process.execPath, ['--import', preloadPath, parcelServe, './src/index.html', 'dist', String(port), '127.0.0.1', '/', 'true'], {
@@ -482,17 +529,26 @@ test('dev proxy serves a browser request and preserves Parcel HMR', async (t) =>
   }
   assert.ok(ready, `Dev server did not start: ${logs}`);
   assert.match(logs, /Dev proxy enabled: \/__proxy\/api/);
-  let openedUrl;
+  for (let attempt = 0; attempt < 300 && !/Built in/.test(logs); attempt += 1) {
+    if (child.exitCode !== null) throw new Error(`Dev server exited: ${logs}`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.match(logs, /Built in/);
+  await assert.rejects(fs.access(openedPath), { code: 'ENOENT' });
+  await fs.writeFile(readyPath, 'ready');
+  let opened;
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
-      openedUrl = await fs.readFile(openedPath, 'utf8');
+      opened = JSON.parse(await fs.readFile(openedPath, 'utf8'));
       break;
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
-  assert.equal(openedUrl, `http://127.0.0.1:${port}/preview?parentUrl=https%3A%2F%2Fwww.sport.cz%2Farticle`, logs);
+  assert.equal(opened?.url, `http://127.0.0.1:${port}/preview?parentUrl=https%3A%2F%2Fwww.sport.cz%2Farticle`, logs);
+  assert.equal(opened?.status, 200, JSON.stringify(opened));
+  assert.match(opened.body, /Example content/);
   const page = await browser.newPage();
   const socketOpened = new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Parcel HMR websocket did not open')), 10000);
@@ -501,10 +557,75 @@ test('dev proxy serves a browser request and preserves Parcel HMR', async (t) =>
       resolve();
     });
   });
-  await page.goto(openedUrl);
+  await page.goto(opened.url);
   await page.waitForFunction(() => document.querySelector('#message')?.textContent === '/base/items?filter=hello%20world');
   await socketOpened;
   await page.close();
+});
+
+test('dev preview waits for a successful build before opening and opens only once', async (t) => {
+  const cwd = await project(t, 'assets');
+  const scriptPath = path.join(cwd, 'src/index.js');
+  const original = await fs.readFile(scriptPath, 'utf8');
+  await fs.appendFile(scriptPath, "\nimport './missing-preview-test.js';\n");
+  const reservation = net.createServer();
+  await new Promise((resolve) => reservation.listen(0, '127.0.0.1', resolve));
+  const port = reservation.address().port;
+  await new Promise((resolve) => reservation.close(resolve));
+  const openedPath = path.join(cwd, 'opened.txt');
+  const preloadPath = path.join(cwd, 'open-stub.mjs');
+  await fs.writeFile(preloadPath, `
+    import { createRequire } from 'node:module';
+    import { appendFile } from 'node:fs/promises';
+    const require = createRequire(${JSON.stringify(parcelServe)});
+    Object.defineProperty(require('@parcel/utils'), 'openInBrowser', {
+      value: async (url) => {
+        const response = await fetch(url);
+        await appendFile(${JSON.stringify(openedPath)}, response.status + '\\n');
+      },
+    });
+  `);
+  const child = spawn(process.execPath, ['--import', preloadPath, parcelServe, './src/index.html', 'dist', String(port), '127.0.0.1', '/', 'true'], {
+    cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let logs = '';
+  child.stdout.on('data', (chunk) => { logs += chunk; });
+  child.stderr.on('data', (chunk) => { logs += chunk; });
+  t.after(async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    await new Promise((resolve) => {
+      child.once('close', resolve);
+      child.kill('SIGTERM');
+    });
+  });
+  for (let attempt = 0; attempt < 300 && !/missing-preview-test\.js/.test(logs); attempt += 1) {
+    if (child.exitCode !== null) throw new Error(`Dev server exited: ${logs}`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.match(logs, /missing-preview-test\.js/);
+  await assert.rejects(fs.access(openedPath), { code: 'ENOENT' });
+  await fs.writeFile(scriptPath, original);
+  let opened;
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    if (child.exitCode !== null) throw new Error(`Dev server exited: ${logs}`);
+    try {
+      opened = await fs.readFile(openedPath, 'utf8');
+      break;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  assert.equal(opened, '200\n', logs);
+  const completedBuilds = (logs.match(/Built in/g) ?? []).length;
+  await fs.appendFile(scriptPath, '\n');
+  for (let attempt = 0; attempt < 300 && (logs.match(/Built in/g) ?? []).length <= completedBuilds; attempt += 1) {
+    if (child.exitCode !== null) throw new Error(`Dev server exited: ${logs}`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.ok((logs.match(/Built in/g) ?? []).length > completedBuilds, logs);
+  assert.equal(await fs.readFile(openedPath, 'utf8'), '200\n');
 });
 
 test('PurgeCSS API safelists have the same exact-selector behavior as its CLI', async (t) => {

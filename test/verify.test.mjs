@@ -260,20 +260,27 @@ test('regression supports a project CommonJS Playwright default export', async (
     name: 'playwright', main: './index.cjs', exports: { '.': './index.cjs' },
   }));
   const png = new PNG({ width: 1, height: 1 });
-  const image = PNG.sync.write(png).toString('base64');
+  png.data.set([0, 0, 0, 255]);
+  const imagePath = path.join(cwd, 'image.png');
+  const developmentPath = path.join(cwd, 'development.png');
+  await fs.writeFile(imagePath, PNG.sync.write(png));
+  await fs.writeFile(developmentPath, PNG.sync.write(png));
   await fs.writeFile(path.join(packageDir, 'index.cjs'), `
     const makeApi = () => ({ chromium: { launch: async () => ({
-      newPage: async () => ({
+      newPage: async () => {
+        const screenshotPath = ++pageCount % 2 ? ${JSON.stringify(imagePath)} : ${JSON.stringify(developmentPath)};
+        return {
         goto: async (url) => {
           const response = await fetch(url);
           if (!response.ok) throw new Error("Page not available: " + url);
           require("node:fs").appendFileSync(${JSON.stringify(path.join(cwd, 'visited.txt'))}, url + "\\n");
         },
-        screenshot: async () => Buffer.from(${JSON.stringify(image)}, "base64"),
+        screenshot: async () => require("node:fs").readFileSync(screenshotPath),
         close: async () => {},
-      }),
+      }; },
       close: async () => {},
     }) } });
+    let pageCount = 0;
     module.exports = makeApi();
   `);
   await fs.mkdir(path.join(cwd, 'src'));
@@ -281,15 +288,78 @@ test('regression supports a project CommonJS Playwright default export', async (
   await fs.mkdir(path.join(cwd, 'dist'));
   const output = path.join(cwd, 'dist/staticContent.html');
   await fs.writeFile(output, '<main>test</main>');
+  await fs.writeFile(path.join(cwd, 'dist/index.html'), '<html><body><main>test</main></body></html>');
   const result = await testRegression({
     cwd,
     config: { page: '/preview?parentUrl=hello%20world', build: { entry: 'src/index.html' }, regression: { maxDiffPixelRatio: 0.001 } },
     builtResult: { outputs: { html: output } },
   });
   assert.equal(result.diffRatio, 0);
+  assert.deepEqual(await fs.readFile(result.artifacts.production), await fs.readFile(imagePath));
+  assert.deepEqual(await fs.readFile(result.artifacts.development), await fs.readFile(developmentPath));
+  assert.equal(PNG.sync.read(await fs.readFile(result.artifacts.diff)).width, 1);
   const visited = (await fs.readFile(path.join(cwd, 'visited.txt'), 'utf8')).trim().split('\n');
   assert.equal(visited.length, 2);
   for (const url of visited) assert.equal(new URL(url).pathname + new URL(url).search, '/preview?parentUrl=hello%20world');
+
+  const different = new PNG({ width: 1, height: 1 });
+  different.data.set([255, 255, 255, 255]);
+  await fs.writeFile(developmentPath, PNG.sync.write(different));
+  const config = { build: { entry: 'src/index.html' }, regression: { maxDiffPixelRatio: 0.001 } };
+  const changed = await testRegression({ cwd, config, builtResult: { outputs: { html: output } } });
+  assert.equal(changed.diffRatio, 1);
+  assert.equal(changed.warnings.length, 1);
+  assert.notEqual(changed.artifacts.directory, result.artifacts.directory);
+  assert.equal(PNG.sync.read(await fs.readFile(changed.artifacts.diff)).width, 1);
+
+  const larger = new PNG({ width: 2, height: 1 });
+  await fs.writeFile(developmentPath, PNG.sync.write(larger));
+  const mismatched = await testRegression({ cwd, config, builtResult: { outputs: { html: output } } });
+  assert.match(mismatched.warnings[0], /different dimensions/);
+  assert.equal(PNG.sync.read(await fs.readFile(mismatched.artifacts.production)).width, 1);
+  assert.equal(PNG.sync.read(await fs.readFile(mismatched.artifacts.development)).width, 2);
+  assert.equal(mismatched.artifacts.diff, undefined);
+  assert.match(mismatched.artifacts.directory, /test-results[\\/]visual-regression-/);
+});
+
+test('regression saves real browser screenshots and a visible diff', async (t) => {
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (error) {
+    if (!error.message.includes("Executable doesn't exist")) throw error;
+    t.skip('Playwright Chromium is not installed');
+    return;
+  }
+  await browser.close();
+  const cwd = await temporaryProject(t);
+  await fs.mkdir(path.join(cwd, 'node_modules'));
+  await fs.symlink(fileURLToPath(new URL('../node_modules/playwright', import.meta.url)), path.join(cwd, 'node_modules/playwright'), 'junction');
+  await fs.mkdir(path.join(cwd, 'src'));
+  await fs.writeFile(path.join(cwd, 'src/index.html'), '<html><body style="background: red"></body></html>');
+  await fs.mkdir(path.join(cwd, 'dist'));
+  const productionPage = '<html><body style="background: blue"></body></html>';
+  await fs.writeFile(path.join(cwd, 'dist/index.html'), productionPage);
+  const output = path.join(cwd, 'dist/staticContent.html');
+  await fs.writeFile(output, '<main>test</main>');
+  await fs.mkdir(path.join(cwd, 'test-results'));
+  await fs.writeFile(path.join(cwd, 'test-results/keep.txt'), 'existing results');
+  const result = await testRegression({
+    cwd,
+    config: { build: { entry: 'src/index.html' }, regression: {
+      maxDiffPixelRatio: 0.001, viewport: { width: 100, height: 100 },
+    } },
+    builtResult: { outputs: { html: output } },
+  });
+  assert.ok(result.diff > 0);
+  assert.equal(result.warnings.length, 1);
+  for (const artifact of ['production', 'development', 'diff']) {
+    const image = PNG.sync.read(await fs.readFile(result.artifacts[artifact]));
+    assert.equal(image.width, 100);
+    assert.equal(image.height, 100);
+  }
+  assert.equal(await fs.readFile(path.join(cwd, 'test-results/keep.txt'), 'utf8'), 'existing results');
+  assert.equal(await fs.readFile(path.join(cwd, 'dist/index.html'), 'utf8'), productionPage);
 });
 
 test('verify defaults are exposed for central policy inspection', () => {
