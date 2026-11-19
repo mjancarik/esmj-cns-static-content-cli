@@ -22,7 +22,7 @@ Commands:
   test:unit                 Run project Jest unit tests
   test:size                 Build and check HTML/CSS/JS size limits
   test:e2e                  Build, serve, and run project Playwright tests
-  test:regression            Compare dev and production browser screenshots
+  test:regression           Compare dev with the configured live production URL
 
 Verify options:
   --cwd <directory>         Project directory (default: current directory)
@@ -98,6 +98,10 @@ async function main() {
         process.exitCode = await testE2e({ cwd: verifyOptions.cwd, config });
       } else {
         const result = await testRegression({ cwd: verifyOptions.cwd, config });
+        if (result.skipped) {
+          process.stdout.write(`test:regression: SKIPPED (${result.skipped}).\n`);
+          return;
+        }
         process.stdout.write(`Regression screenshots: ${result.artifacts.directory}\n`);
         for (const warning of result.warnings) process.stderr.write(`Warning: ${warning}\n`);
         if (result.warnings.length === 0) process.stdout.write('Production/dev screenshots are within tolerance.\n');

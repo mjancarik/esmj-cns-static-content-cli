@@ -114,7 +114,7 @@ requires URL parameters:
 
 The default is `/`. The value must be a local absolute path, optionally with a
 query string and fragment, not an external URL. The CLI uses it for `--dev
---open`, responsive CSS measurement, both visual-regression screenshots, and
+--open`, responsive CSS measurement, the dev visual-regression screenshot, and
 the Playwright E2E `baseURL`. Each local server supplies its own origin; the
 configured query reaches the generated content. The path is not a request to
 the parent site, and production CORS still applies.
@@ -307,12 +307,31 @@ widths are the first sampled widths at which the rounded content height changes.
    exceeding hard fails verification.
 4. `test:e2e` serves the generated `staticContent.html` at the configured page and runs the
    project's Playwright tests.
-5. `test:regression` serves Parcel's production page and starts a dev server,
-   then compares browser screenshots. Differences above the default 0.1% pixel
-   ratio warn for manual review and do not fail verification.
+5. `test:regression` compares the local dev preview against the configured
+   live production URL. If no production URL is configured, the check is
+   skipped and does not fail verification. Differences above the default 0.1%
+   pixel ratio warn for manual review and do not fail verification.
 
-Every successful regression comparison saves `production.png` and
-`development.png` in a new `test-results/visual-regression-*` directory under
+Set `regression.productionUrl` to the complete HTTP(S) URL of the published
+content, including any required query or fragment:
+
+```json
+{
+  "page": "/?parentUrl=https%3A%2F%2Fwww.sport.cz%2Farticle",
+  "regression": {
+    "productionUrl": "https://example.com/published-content"
+  }
+}
+```
+
+The browser captures the **entire page** at that URL and compares it with the
+local dev preview at `page`; ensure both display comparable content and state.
+The live URL is used as written, independently of `page`. HTTP errors,
+navigation failures, missing browsers and timeouts fail the check rather than
+being treated as a match. Do not put credentials in the URL or configuration.
+
+Every successful regression comparison saves `production.png` (live) and
+`development.png` (local) in a new `test-results/visual-regression-*` directory under
 the project, and prints its path. It also saves `diff.png` when screenshot
 dimensions match. Different dimensions produce a warning and no diff image;
 compare the saved screenshots directly. Previous runs are retained, so remove
@@ -320,8 +339,9 @@ old results when no longer needed and ignore `test-results/` in version control.
 The JavaScript API returns these paths in `artifacts`.
 
 The checks are also available individually as `test:unit`, `test:size`,
-`test:e2e`, and `test:regression`. Size, E2E, and regression commands build when
-run alone. `verify` shares its production build among those checks. Unit tests
+`test:e2e`, and `test:regression`. Size and E2E commands build when run alone;
+regression starts a dev server and does not require a production build. `verify`
+shares its production build between size and E2E checks. Unit tests
 use the CLI's Jest, jsdom environment, and CSS mock dependencies; no project Jest
 installation is required. Playwright checks use the version installed by the
 project or a monorepo ancestor, and its browser must already be installed. E2E tests should be in
@@ -348,6 +368,7 @@ configuration, and the file is never rewritten. For example:
     "playwright": { "workers": 2 }
   },
   "regression": {
+    "productionUrl": "https://example.com/published-content",
     "viewport": { "width": 1280, "height": 720 },
     "maxDiffPixelRatio": 0.001,
     "pixelThreshold": 0.1,

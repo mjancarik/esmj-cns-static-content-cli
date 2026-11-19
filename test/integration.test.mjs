@@ -413,12 +413,20 @@ test('regression CLI prints the directory containing browser images', async (t) 
   }
   await browser.close();
   const cwd = await project(t, 'assets');
+  const live = http.createServer((_request, response) => response.end('<html><body>Live content</body></html>'));
+  await new Promise((resolve) => live.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => live.close(resolve)));
+  await fs.writeFile(path.join(cwd, '.cns-static-content.json'), JSON.stringify({
+    regression: { productionUrl: `http://127.0.0.1:${live.address().port}/live` },
+  }));
   await fs.mkdir(path.join(cwd, 'node_modules'), { recursive: true });
   await fs.symlink(path.join(repository, 'node_modules/playwright'), path.join(cwd, 'node_modules/playwright'), 'junction');
-  const { stdout } = await execute(process.execPath, [cli, 'test:regression', '--cwd', cwd], { timeout: 120000 });
+  const { stdout, stderr } = await execute(process.execPath, [cli, 'test:regression', '--cwd', cwd], { timeout: 120000 });
   const match = stdout.match(/^Regression screenshots: (.+)$/m);
   assert.ok(match, stdout);
   assert.equal(path.dirname(match[1]), path.join(cwd, 'test-results'));
+  assert.match(stderr, /Warning:.*(visual difference|different dimensions)/);
+  await assert.rejects(fs.access(path.join(cwd, 'dist/staticContent.html')), { code: 'ENOENT' });
   for (const name of ['production.png', 'development.png']) {
     assert.ok((await fs.stat(path.join(match[1], name))).size > 0);
   }

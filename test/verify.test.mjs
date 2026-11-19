@@ -116,6 +116,18 @@ test('size config rejects invalid thresholds', async (t) => {
   await assert.rejects(loadVerifyConfig(cwd), /sizeLimits\.html/);
 });
 
+test('regression skips without a production URL and rejects invalid configured URLs', async (t) => {
+  const cwd = await temporaryProject(t);
+  assert.deepEqual(await testRegression({ cwd }), { skipped: 'production URL not configured', warnings: [] });
+  const { stdout } = await execute(process.execPath, [cli, 'test:regression', '--cwd', cwd]);
+  assert.match(stdout, /SKIPPED.*production URL not configured/);
+  await assert.rejects(fs.access(path.join(cwd, 'test-results')), { code: 'ENOENT' });
+  for (const productionUrl of ['', null, '/local', 'file:///tmp/test', 'https://user:pass@example.com/']) {
+    await fs.writeFile(path.join(cwd, '.cns-static-content.json'), JSON.stringify({ regression: { productionUrl } }));
+    await assert.rejects(loadVerifyConfig(cwd), /regression\.productionUrl/);
+  }
+});
+
 test('CLI-owned Jest defaults preserve the requested mappings and allow overrides', () => {
   const config = createJestConfig('/repo', { testEnvironment: 'jsdom' });
   assert.equal(config.rootDir, '/repo');
@@ -254,6 +266,10 @@ test('E2E can navigate to the configured default page', async (t) => {
 
 test('regression supports a project CommonJS Playwright default export', async (t) => {
   const cwd = await temporaryProject(t);
+  const live = http.createServer((_request, response) => response.end('<main>live</main>'));
+  await new Promise((resolve) => live.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => live.close(resolve)));
+  const productionUrl = `http://127.0.0.1:${live.address().port}/live?fixture=1#content`;
   const packageDir = path.join(cwd, 'node_modules/playwright');
   await fs.mkdir(packageDir, { recursive: true });
   await fs.writeFile(path.join(packageDir, 'package.json'), JSON.stringify({
@@ -274,6 +290,7 @@ test('regression supports a project CommonJS Playwright default export', async (
           const response = await fetch(url);
           if (!response.ok) throw new Error("Page not available: " + url);
           require("node:fs").appendFileSync(${JSON.stringify(path.join(cwd, 'visited.txt'))}, url + "\\n");
+          return { ok: () => response.ok, status: () => response.status };
         },
         screenshot: async () => require("node:fs").readFileSync(screenshotPath),
         close: async () => {},
@@ -291,8 +308,7 @@ test('regression supports a project CommonJS Playwright default export', async (
   await fs.writeFile(path.join(cwd, 'dist/index.html'), '<html><body><main>test</main></body></html>');
   const result = await testRegression({
     cwd,
-    config: { page: '/preview?parentUrl=hello%20world', build: { entry: 'src/index.html' }, regression: { maxDiffPixelRatio: 0.001 } },
-    builtResult: { outputs: { html: output } },
+    config: { page: '/preview?parentUrl=hello%20world', build: { entry: 'src/index.html' }, regression: { productionUrl, maxDiffPixelRatio: 0.001 } },
   });
   assert.equal(result.diffRatio, 0);
   assert.deepEqual(await fs.readFile(result.artifacts.production), await fs.readFile(imagePath));
@@ -300,13 +316,14 @@ test('regression supports a project CommonJS Playwright default export', async (
   assert.equal(PNG.sync.read(await fs.readFile(result.artifacts.diff)).width, 1);
   const visited = (await fs.readFile(path.join(cwd, 'visited.txt'), 'utf8')).trim().split('\n');
   assert.equal(visited.length, 2);
-  for (const url of visited) assert.equal(new URL(url).pathname + new URL(url).search, '/preview?parentUrl=hello%20world');
+  assert.equal(visited[0], productionUrl);
+  assert.equal(new URL(visited[1]).pathname + new URL(visited[1]).search, '/preview?parentUrl=hello%20world');
 
   const different = new PNG({ width: 1, height: 1 });
   different.data.set([255, 255, 255, 255]);
   await fs.writeFile(developmentPath, PNG.sync.write(different));
-  const config = { build: { entry: 'src/index.html' }, regression: { maxDiffPixelRatio: 0.001 } };
-  const changed = await testRegression({ cwd, config, builtResult: { outputs: { html: output } } });
+  const config = { build: { entry: 'src/index.html' }, regression: { productionUrl, maxDiffPixelRatio: 0.001 } };
+  const changed = await testRegression({ cwd, config });
   assert.equal(changed.diffRatio, 1);
   assert.equal(changed.warnings.length, 1);
   assert.notEqual(changed.artifacts.directory, result.artifacts.directory);
@@ -314,12 +331,29 @@ test('regression supports a project CommonJS Playwright default export', async (
 
   const larger = new PNG({ width: 2, height: 1 });
   await fs.writeFile(developmentPath, PNG.sync.write(larger));
-  const mismatched = await testRegression({ cwd, config, builtResult: { outputs: { html: output } } });
+  const mismatched = await testRegression({ cwd, config });
   assert.match(mismatched.warnings[0], /different dimensions/);
   assert.equal(PNG.sync.read(await fs.readFile(mismatched.artifacts.production)).width, 1);
   assert.equal(PNG.sync.read(await fs.readFile(mismatched.artifacts.development)).width, 2);
   assert.equal(mismatched.artifacts.diff, undefined);
   assert.match(mismatched.artifacts.directory, /test-results[\\/]visual-regression-/);
+
+  const baseline = new PNG({ width: 10, height: 10 });
+  for (let index = 3; index < baseline.data.length; index += 4) baseline.data[index] = 255;
+  await fs.writeFile(imagePath, PNG.sync.write(baseline));
+  baseline.data.set([255, 255, 255, 255], (5 * 10 + 5) * 4);
+  await fs.writeFile(developmentPath, PNG.sync.write(baseline));
+  const atLimit = await testRegression({
+    cwd, config: { ...config, regression: { productionUrl, maxDiffPixelRatio: 0.01 } },
+  });
+  assert.equal(atLimit.diff, 1);
+  assert.equal(atLimit.diffRatio, 0.01);
+  assert.equal(atLimit.warnings.length, 0);
+  const overLimit = await testRegression({
+    cwd, config: { ...config, regression: { productionUrl, maxDiffPixelRatio: 0.009 } },
+  });
+  assert.equal(overLimit.diffRatio, 0.01);
+  assert.equal(overLimit.warnings.length, 1);
 });
 
 test('regression saves real browser screenshots and a visible diff', async (t) => {
@@ -333,6 +367,13 @@ test('regression saves real browser screenshots and a visible diff', async (t) =
   }
   await browser.close();
   const cwd = await temporaryProject(t);
+  const live = http.createServer((request, response) => {
+    if (request.url === '/missing') return response.writeHead(404).end('not found');
+    return response.end('<html><body style="background: blue"></body></html>');
+  });
+  await new Promise((resolve) => live.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => live.close(resolve)));
+  const liveUrl = `http://127.0.0.1:${live.address().port}`;
   await fs.mkdir(path.join(cwd, 'node_modules'));
   await fs.symlink(fileURLToPath(new URL('../node_modules/playwright', import.meta.url)), path.join(cwd, 'node_modules/playwright'), 'junction');
   await fs.mkdir(path.join(cwd, 'src'));
@@ -347,9 +388,8 @@ test('regression saves real browser screenshots and a visible diff', async (t) =
   const result = await testRegression({
     cwd,
     config: { build: { entry: 'src/index.html' }, regression: {
-      maxDiffPixelRatio: 0.001, viewport: { width: 100, height: 100 },
+      productionUrl: `${liveUrl}/live`, maxDiffPixelRatio: 0.001, viewport: { width: 100, height: 100 },
     } },
-    builtResult: { outputs: { html: output } },
   });
   assert.ok(result.diff > 0);
   assert.equal(result.warnings.length, 1);
@@ -360,6 +400,16 @@ test('regression saves real browser screenshots and a visible diff', async (t) =
   }
   assert.equal(await fs.readFile(path.join(cwd, 'test-results/keep.txt'), 'utf8'), 'existing results');
   assert.equal(await fs.readFile(path.join(cwd, 'dist/index.html'), 'utf8'), productionPage);
+  await assert.rejects(testRegression({
+    cwd,
+    config: { build: { entry: 'src/index.html' }, regression: { productionUrl: `${liveUrl}/missing`, maxDiffPixelRatio: 0.001 } },
+  }), /HTTP 404/);
+  await assert.rejects(testRegression({
+    cwd,
+    config: { build: { entry: 'src/index.html' }, regression: {
+      productionUrl: 'http://127.0.0.1:1/unreachable', maxDiffPixelRatio: 0.001, timeout: 5000,
+    } },
+  }), /ERR_UNSAFE_PORT|ERR_CONNECTION|net::/);
 });
 
 test('verify defaults are exposed for central policy inspection', () => {
@@ -429,6 +479,7 @@ test('verify CLI continues to size stage and prints a final summary after unit f
     assert.match(error.stdout, /build: passed/);
     assert.match(error.stdout, /test:size:/);
     assert.match(error.stdout, /test:e2e: FAILED/);
+    assert.match(error.stdout, /test:regression: SKIPPED \(production URL not configured\)/);
     return true;
   });
 });
