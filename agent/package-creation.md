@@ -11,4 +11,5 @@ This workflow describes this repository's layout and template, not a CLI scaffol
 7. Preserve the template's module style and stylesheet import pattern. For native browser source prefer ESM `import`/`export`; if Jest consumes it, configure supported transforms through `.cns-static-content.json` instead of weakening production syntax or editing installed Jest configuration.
 8. Initialize on `DOMContentLoaded`, or immediately if `document.readyState` is no longer `loading`, so injected content also starts after the event. Integrate only the CMS helpers the feature needs. Follow [CMS integration](cms.md).
 9. Run `npm install` from the repository root to register the workspace and its dependencies.
-10. Add tests for the implemented behavior and complete [verification](verification.md).
+10. Create the project's `README.md` and `TASK.md` and follow the instruction ownership and documentation rules in [project documentation](project-documentation.md).
+11. Add tests for the implemented behavior and complete [verification](verification.md).

@@ -1,6 +1,6 @@
 # CNS API integration
 
-Read this before implementing CNS content requests through `api-web`. This is agent-facing guidance; no user-facing repository documentation is required.
+Read this before implementing CNS content requests through `api-web`. Document the project's actual request flow and calculations as described in [project documentation](project-documentation.md).
 
 ## Sources and access
 
@@ -70,11 +70,29 @@ Construct URLs with `URL` and `URLSearchParams`. Serialize filters with `JSON.st
 
 - Optimize API payload size with `projection`: request only the fields needed for rendering, attribution, pagination, and error handling. Verify actual response size and required fields rather than assuming a projection reduced the payload.
 - Use `embedded` for supported relations when it avoids separate requests for data the feature needs. Embed only necessary relations and combine with an appropriate projection; compare request count and payload size, since embedding can increase response size. Confirm relation support and response behavior on the selected resource.
+- Run independent requests in parallel rather than creating unnecessary request chains. Keep requests serial when a later request depends on an earlier response or another real dependency requires it.
 - The inspected OpenAPI descriptions permit exclusion with `-`, e.g. `-content`. Do not mix included and excluded fields, except for the documented `-_id` exception.
 - Omitted fields are absent, not necessarily `null`. Handle both absent and nullable fields when rendering.
 - `WEB_PROTECTED_FIELDS` must not be returned even if explicitly projected. A property listed in a broad generated schema does not guarantee that the web API exposes it.
 - Embedding resolves references before projection. A projection only on an embedded field may leave other top-level fields intact; the operations guide explicitly shows this for `sections.name`. Verify the response rather than assuming this limits the entire payload.
 - Even with OpenAPI, check actual live responses for the selected projections and filters.
+
+### Nested projection example
+
+Select individual nested fields instead of projecting their entire parent object. For example, on the Sport article collection:
+
+```javascript
+const url = new URL('/v1/documents/articles', 'https://api-web.sport.cz');
+url.search = new URLSearchParams({
+  embedded: 'sections',
+  projection: 'uid,title,sections.name,sections.uid',
+  limit: '1',
+}).toString();
+```
+
+The equivalent grouped syntax is `uid,title,sections.(name,uid)`. Both forms were checked against a live Sport response on 2026-11-20: embedded section objects contained `name`, `uid`, and `_id`. The response also included `_id` and `recommendUntilDate` at the item level despite not explicitly selecting them. Do not assume unselected or implicitly returned fields are identical across resources.
+
+Confirm that the selected resource supports the relation, embedding and nested fields. Check actual responses for missing or nullable objects, arrays, and fields, as well as fields that should be omitted; a successful top-level projection or an OpenAPI schema alone does not establish nested behavior. Add fixtures that assert the requested projection and the minimum fields the feature needs. If a live check is unavailable, report it as unverified.
 
 ### Pagination and responses
 

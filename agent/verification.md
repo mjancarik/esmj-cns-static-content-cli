@@ -1,18 +1,18 @@
 # Verification and tests
 
-These checks apply to package creation and behavior changes. For documentation-only changes, validate the edited documents and their links; application tests and builds are not required.
+At the end of a project task or session, run the CLI verification command below and check the project documentation. For documentation changes, also validate the edited documents and their links. The additional checks below apply when relevant to the changes.
 
 ## Automated checks
 
-- From the package directory, run `esmj-cns-static-content-cli verify` as the package verification command. This command is provided by the CLI maintainer and may not yet be available in the public release. If the installed version does not support it, report the version limitation and verification as blocked; do not silently substitute another command or claim verification passed.
+- At the end of a task or session, run `esmj-cns-static-content-cli verify` from the affected package directory, including for documentation-only tasks. If the installed version does not support it or the command cannot run, report verification as blocked; do not silently substitute another command or claim verification passed.
 - For package code changes, first run `npm run lint:fix` from the repository root and review the diff for unrelated edits. It formats and auto-fixes package JavaScript; it does not format these Markdown documents.
-- From the repository root, run `npm run lint` and `npm test -- --runInBand`. These currently check the repository, not just the new package; distinguish pre-existing failures from regressions.
+- For package code changes, from the repository root run `npm run lint` and `npm test -- --runInBand`. These currently check the repository, not just the new package; distinguish pre-existing failures from regressions.
 - Keep the repository lint and test checks in addition to CLI verification unless the installed CLI's verified contract explicitly replaces them. Do not assume which checks `verify` performs or invent options for it.
 - The installed CLI provides Jest and owns its generated configuration; its implementation is shipped with the module under `node_modules/@esmj/cns-static-content-cli/src/verify.mjs`. Configure supported overrides through `.cns-static-content.json` rather than relying on a consumer-root `jest.config.js`. Tests use `__tests__` directories and names ending in `Spec.js` or `Spec.jsx`. Any template assertion is only a placeholder, not meaningful coverage.
 - ESM import/export source requires a supported Jest transformation until the CLI runner natively executes ESM. Configure overrides through `.cns-static-content.json` and declare required Babel/Jest transformer packages as direct development dependencies.
 - Playwright must be resolvable from the consumer package or a monorepo ancestor. Declare it as a direct development dependency and pin a version matching the CLI's tested version. Install Chromium separately using the matching Playwright version.
 - Test the behavior introduced or changed, including relevant failure cases. Mock CMS boundaries explicitly; passing mocked tests does not establish CMS integration success.
-- From the package directory, run `npm run build -- --no-clipboard` to validate production output without replacing the user's clipboard.
+- For package code changes, from the package directory run `npm run build -- --no-clipboard` to validate production output without replacing the user's clipboard.
 
 ## Production output
 
@@ -44,4 +44,5 @@ Inspect output for missing content, leaked development-only markup, broken asset
 - Meaningful tests, lint, and production build pass, or failures and their scope are explicitly reported.
 - Production content, styles, assets, and responsive interactions are checked.
 - Applicable CMS behavior is verified, or clearly listed as unverified with the missing environment or prerequisite.
+- The project `README.md` and `TASK.md` have been checked and updated if needed, following [project documentation](project-documentation.md); unresolved documentation gaps are reported.
 - Final report states what changed, which checks ran, and what remains blocked. Never claim an unperformed check passed.

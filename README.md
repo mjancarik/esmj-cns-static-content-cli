@@ -12,6 +12,10 @@ Build a Parcel HTML entry into a static, portable export without making the cons
 npm install @esmj/cns-static-content-cli
 ```
 
+Shared instructions for agents are shipped in
+[`agent/AGENTS.md`](agent/AGENTS.md). They describe how consuming projects
+maintain project documentation and monorepo-specific guidance.
+
 ## CLI usage
 
 Run from the app or site you want to build:

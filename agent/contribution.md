@@ -18,6 +18,7 @@
 - Minimize external dependencies. Prefer NPM imports for libraries; use Seznam CDN hosting when appropriate.
 - Before selecting a library, use `@esmj/size` to compare candidates and weigh their bundle cost against the implementation and maintenance complexity of a project-local helper. Follow [dependency selection](dependencies.md); do not choose on package size alone.
 - Prefer local JSON data over runtime API requests. Local JSON can be loaded with `require`, for example `const data = require('./data.json');`.
+- For every API integration, minimize the required response data and number of requests. Use supported projection, field selection, embedding, or equivalent operations where they reduce the overall cost without omitting required data; verify the API contract and actual response. Run independent requests in parallel; use serial requests when a response is needed to construct a later request or another real dependency requires it. Document the project's request flow and computations as described in [project documentation](project-documentation.md).
 
 ## Conditional
 
